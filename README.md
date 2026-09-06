@@ -1,129 +1,165 @@
 # MediKiosk+ 🏥
 
-> Multilingual AI-Assisted Patient Case-Taking & Clinical Triage Kiosk  
-> AYUSH Dashavidha Pariksha · SOCRATES Interview Engine · Document OCR · FHIR R4 · Live OPD Queue
+> **AI-Assisted Multilingual Patient Case-Taking & Clinical Triage Kiosk**  
+> *Smart India Hackathon (SIH) — Problem Statement ID: 26047 | Ministry of Ayush / All India Institute of Ayurveda (AIIA)*  
+> AYUSH Dashavidha Pariksha · SOCRATES Interview Engine · On-Demand ABHA/QR Scanner · FHIR R4 · Real-time OPD Queue
 
 ---
 
-## ⚡ 1-Click Windows Setup (New Laptop / Transfer)
+## 📌 Executive Summary
 
-If you are transferring this project to another Windows laptop:
-1. Copy the folder to your other laptop (you can skip `node_modules` to transfer quickly).
-2. Simply double-click **`setup_and_launch.bat`**.
-3. It will automatically check Node.js, install dependencies, create the database & 22 tables, seed initial data, and open the site in your browser at `http://localhost:3000`!
+In Indian tertiary hospitals and public health centres, Outpatient Departments (OPDs) manage **4,000 to 10,000 patients daily**, compressing consultation times to an unsustainable **2 to 5 minutes** per patient. Under this severe time constraint, thorough clinical history-taking is invariably compromised.
 
-See [TRANSFER_AND_SETUP_GUIDE.md](file:///c:/SIH/medikiosk+/TRANSFER_AND_SETUP_GUIDE.md) for full transfer details.
+**MediKiosk+** transforms hospital intake into an automated, multilingual, patient-facing digital workflow. It captures demographics, chief complaints, structured clinical histories, past medical records via OCR, and AYUSH-specific systemic evaluations before the patient steps into the doctor's chamber. The physician receives a pre-compiled, structured clinical brief and FHIR R4-compliant record, restoring quality consultation time to patient care.
 
 ---
 
-## Manual Local Development Setup
+## ✨ Key Capabilities
+
+### 1. 🌐 Zero-Scroll Single-Screen Multilingual UI
+- Tailored for high-throughput kiosks with an instant **3-up, 3-down** clean grid layout:
+  - 🇬🇧 **English**
+  - 🇮🇳 **Telugu (తెలుగు)**
+  - 🇮🇳 **Tamil (தமிழ்)**
+  - 🇮🇳 **Kannada (ಕನ್ನಡ)**
+  - 🇮🇳 **Malayalam (മലയാളം)**
+  - 🇮🇳 **Marathi (मराठी)**
+- **Instant Progression**: Automatically navigates to patient intake upon selection without requiring unnecessary confirmation clicks.
+- Built-in Voice Narration (Text-to-Speech) and Speech-to-Text in regional dialects.
+
+### 2. 🆔 Unified ABDM Multi-Channel Intake
+- **Merged ABHA & QR Scanner**: ABHA ID input and live QR camera scanner in a single interface.
+- **Privacy-Preserving On-Demand Camera**: Camera hardware is activated **only when the user taps "Scan QR"**, eliminating unnecessary camera usage, battery drain, and privacy concerns.
+- **Aadhaar & Mobile OTP Channels**: Direct mobile OTP and Aadhaar authentication with encrypted payload transport.
+- **New Patient Registration**: Seamless capture of demographic details with immediate OPD queue token issuance.
+
+### 3. 🩺 Dual Clinical Intelligence Engine
+- **Modern Clinical Intake (SOCRATES Framework)**: Elicits **S**ite, **O**nset, **C**haracter, **R**adiation, **A**ssociations, **T**iming, **E**xacerbating/Relieving factors, and **S**everity.
+- **AYUSH Dashavidha Pariksha**: Comprehensive Ayurvedic systemic assessment:
+  - *Prakriti* (Constitution), *Vikriti* (Pathological imbalance), *Sara* (Tissue vitality), *Samhanana* (Body build), *Pramana* (Anthropometry), *Satmya* (Habituation), *Satwa* (Mental resilience), *Ahara-shakti* (Digestive capacity), *Vyayama-shakti* (Physical endurance), and *Vaya* (Age stage).
+- **Document OCR Intelligence**: Analyzes uploaded photos or scans of past prescriptions, diagnostic reports, and discharge summaries via Gemini AI.
+- **Deterministic Offline Fallback**: Fully functional clinical triage rule engine if internet connectivity or API quota is unavailable.
+
+### 4. 🚨 Red Flag & Emergency Triage
+- Automated detection of critical clinical indicators (severe chest pain, dyspnea, acute neurological signs, abnormal vitals).
+- Real-time cross-tab alerts via `BroadcastChannel` immediately notifying triage staff and doctor stations.
+
+### 5. 📋 Live Doctor OPD Dashboard & FHIR Interoperability
+- Real-time queue tracker with triage priority tags (Emergency, High, Routine).
+- In-depth clinical brief viewer with one-click **Download PDF Case Summary**.
+- Standards-compliant **HL7 FHIR R4 Bundle** generation for seamless integration with Hospital Information Systems (HIS) and ABDM health records.
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+| :--- | :--- |
+| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS v4, Lucide Icons, Recharts, Motion |
+| **Backend** | Node.js, Express, TSX |
+| **Database** | MySQL (22 structured relational tables for patients, visits, OPD queue, audit logs) |
+| **AI / OCR** | Google GenAI SDK (`@google/genai` Gemini 2.0 Flash / Pro) + Clinical Fallback Engine |
+| **Standards** | HL7 FHIR R4 JSON Bundle, ABDM v3 Specifications |
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
-- **Node.js** v18+ (or [Bun](https://bun.sh/))
-- A Gemini API key *(optional — app works offline with fallback engine)*
+- **Node.js** v18.0.0 or higher
+- **MySQL Server** (e.g., MySQL Community Server or XAMPP / MariaDB)
 
-### 1. Install Dependencies
-
+### 1. Clone & Install Dependencies
 ```bash
+git clone https://github.com/Sanjeevakumarnani/smart-india-hackathon.git
+cd smart-india-hackathon
 npm install
-# or
-bun install
 ```
 
-### 2. Configure Environment
-
+### 2. Configure Environment Variables
+Copy `.env.example` to `.env`:
 ```bash
-# Copy the example env file
+# Windows
 copy .env.example .env
+
+# macOS / Linux
+cp .env.example .env
 ```
 
-Open `.env` and optionally add your Gemini API key:
+Configure your `.env` settings:
 ```env
-GEMINI_API_KEY="your-key-here"
-APP_URL="http://localhost:3000"
+PORT=3000
+NODE_ENV=development
+
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=medikiosk
+
+# Gemini AI (Optional — app operates with fallback engine if omitted)
+GEMINI_API_KEY="your-gemini-api-key"
+
+# JWT Secret
+JWT_SECRET=your_jwt_secret_key
 ```
 
-> **No key?** The app runs fully with a built-in deterministic clinical fallback engine.
+### 3. Initialize Database & Run Migrations
+```bash
+# Create database tables and initial seed data
+npm run setup:db
 
-### 3. Start the Dev Server
+# Run patient ABDM migration
+npm run migrate:patient-abdm
+```
 
+### 4. Start Development Server
 ```bash
 npm run dev
 ```
-
-Visit **[http://localhost:3000](http://localhost:3000)** in your browser.
-
-### ABDM Patient Verification Integration
-
-The unified endpoint is available at `POST /api/patient/verify-and-register` and supports:
-
-- `path: "abha"` with `action: "lookup"` for ABHA IDs, ABHA addresses, or scanned demographic payloads.
-- `path: "aadhaar"` with `action: "send_otp"` and `action: "verify_otp"`.
-- `path: "mobile"` with `action: "send_otp"` and `action: "verify_otp"`; unknown mobile users receive `202 REGISTRATION_REQUIRED` with the required demographic fields.
-
-ABDM credentials and URLs are intentionally blank environment hooks:
-
-```env
-ABDM_BASE_URL=""
-ABDM_CLIENT_ID=""
-ABDM_CLIENT_SECRET=""
-ABDM_FACILITY_ID=""
-ABDM_TIMEOUT_MS="10000"
-```
-
-The workflow checks MySQL first, encrypts Aadhaar/mobile values with the ABDM public certificate before transmission, and maintains a token refresh hook for `/v3/sessions`. Run `npm run migrate:patient-abdm` once on an existing database to add ABHA address and profile photo columns.
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ---
 
-## Architecture
+## 📜 Available NPM Scripts
+
+| Command | Description |
+| :--- | :--- |
+| `npm run dev` | Runs backend Express server with Vite HMR on port 3000 |
+| `npm run build` | Builds frontend production assets and bundles backend |
+| `npm run start` | Runs production bundle from `dist/server.cjs` |
+| `npm run setup:db` | Initializes MySQL database schema (`schema.sql`) |
+| `npm run migrate:patient-abdm`| Applies ABDM patient columns and schema updates |
+| `npm run lint` | TypeScript static type checking (`tsc --noEmit`) |
+
+---
+
+## 📁 Repository Structure
 
 ```
 medikiosk+/
-├── server.ts          # Express backend — Gemini API proxy & FHIR endpoints
 ├── src/
-│   ├── App.tsx        # Root kiosk state machine & step router
-│   ├── components/    # All screen components (Language, Consent, SOCRATES, etc.)
-│   ├── services/
-│   │   ├── geminiService.ts   # Calls backend Gemini endpoints
-│   │   ├── fhirGenerator.ts   # FHIR R4 bundle builder
-│   │   ├── speechService.ts   # Web Speech API (TTS/STT)
-│   │   └── broadcastChannel.ts# Cross-tab red-flag notifications
-│   ├── data/mockData.ts       # Demo patient personas & sample documents
-│   └── types.ts               # Shared TypeScript types
-└── vite.config.ts     # Vite + Tailwind + PWA config
+│   ├── components/            # UI components (Kiosk, Intake, SOCRATES, AYUSH, Dashboard)
+│   │   ├── LanguageSelection.tsx # 6-language 3x2 responsive grid with auto-advance
+│   │   ├── AbhaVerification.tsx  # Unified ABHA & QR scanner (on-demand camera toggle)
+│   │   ├── AadhaarVerification.tsx
+│   │   ├── MobileVerification.tsx
+│   │   ├── SocratesAssessment.tsx
+│   │   ├── AyushAssessment.tsx
+│   │   └── DoctorDashboard.tsx
+│   ├── services/              # Client services (Gemini, Speech, FHIR, BroadcastChannel)
+│   ├── data/                  # Mock data, translations, clinical vocabularies
+│   ├── types.ts               # Shared TypeScript schemas and data interfaces
+│   └── App.tsx                # Main state machine & navigation router
+├── server.ts                  # Express backend & API gateway
+├── schema.sql                 # MySQL schema definitions
+├── setup_db.cjs               # Database bootstrap script
+├── migrate_patient_abdm.cjs   # Patient ABDM migration script
+└── package.json               # Project manifest and dependencies
 ```
-
-## Available Scripts
-
-| Command | Description |
-|---|---|
-| `npm run dev` | Start dev server (Express + Vite HMR) on port 3000 |
-| `npm run build` | Build for production |
-| `npm run start` | Run production build |
-| `npm run lint` | TypeScript type check |
-
-## Making It Publicly Accessible (ngrok)
-
-To share the kiosk over the internet temporarily:
-
-```bash
-# Install ngrok (one-time)
-npm install -g ngrok
-
-# In a second terminal after starting npm run dev
-ngrok http 3000
-```
-
-Copy the `https://xxxx.ngrok.io` URL — share it with anyone!
 
 ---
 
-## Features
-
-- 🌐 **Multilingual** — Hindi, English, Tamil, Marathi, Bengali, Telugu
-- 🤖 **Gemini AI** — Clinical summarization, document OCR, NLP symptom parsing
-- 🌿 **AYUSH** — Dashavidha Pariksha for Ayurveda OPD
-- 🔴 **Red Flag Detection** — Auto-triage to Emergency with cross-tab broadcast
-- 📄 **FHIR R4** — ABDM-compatible clinical data export
-- 📱 **PWA** — Installable, offline-capable
-- ♿ **Accessibility** — ISL avatar, high-contrast, large font, audio narration
+## ⚖️ License & Acknowledgements
+Developed for the **Smart India Hackathon** under the auspices of the **Ministry of Ayush** and **All India Institute of Ayurveda (AIIA)**.
