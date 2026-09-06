@@ -1,16 +1,10 @@
 export type LanguageCode =
   | 'en'
-  | 'hi'
-  | 'ta'
   | 'te'
-  | 'bn'
-  | 'mr'
-  | 'gu'
+  | 'ta'
   | 'kn'
-  | 'pa'
   | 'ml'
-  | 'or'
-  | 'as';
+  | 'mr';
 
 export interface LanguageOption {
   code: LanguageCode;
@@ -25,6 +19,7 @@ export type OpdType = 'allopathic' | 'ayurveda';
 export interface PatientProfile {
   id: string;
   abhaId: string;
+  abhaAddress?: string;
   aadhaarLast4: string;
   fullName: string;
   age: number;
@@ -32,6 +27,7 @@ export interface PatientProfile {
   phone: string;
   city: string;
   state: string;
+  aadhaarNumber?: string;
   bloodGroup?: string;
   emergencyContact: {
     name: string;

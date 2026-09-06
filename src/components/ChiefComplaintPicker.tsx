@@ -13,6 +13,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { OpdType, LanguageCode } from '../types';
+import { translate } from '../services/i18n';
 
 interface Complaint {
   id: string;
@@ -42,6 +43,7 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
   onContinue,
   onBack,
   selectedLanguage: _selectedLanguage,
+  selectedLanguage,
 }) => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -102,6 +104,7 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
           Select OPD Category & Primary Complaint
+                  {translate('selectComplaint', selectedLanguage)}
         </h2>
         <p className="text-slate-600 text-sm sm:text-base mt-1">
           कृपया अस्पताल का विभाग और अपनी मुख्य शारीरिक तकलीफ चुनें
@@ -150,11 +153,13 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
         <div className="flex flex-col items-center justify-center min-h-[30vh]">
           <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-4" />
           <p className="text-slate-600">Loading complaints...</p>
+                  <p className="text-slate-600">{translate('loading', selectedLanguage)}</p>
         </div>
       ) : error ? (
         <div className="flex flex-col items-center justify-center min-h-[30vh]">
           <p className="text-red-500 mb-4">Error loading complaints: {error}</p>
           <button onClick={() => window.location.reload()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Retry</button>
+                  <button onClick={() => window.location.reload()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">{translate('retry', selectedLanguage)}</button>
         </div>
       ) : (
         /* Complaint Cards Grid */
@@ -225,6 +230,7 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Identity</span>
+                  <span>{translate('backToIdentity', selectedLanguage)}</span>
         </button>
 
         <button
@@ -233,6 +239,7 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
           className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98"
         >
           <span>Start SOCRATES Clinical Interview</span>
+                    <span>{translate('startInterview', selectedLanguage)}</span>
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>

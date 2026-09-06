@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { DigitizedDocument, InteractionResult, LanguageCode, PatientProfile } from '../types';
 import { processDocumentOcr, checkDrugInteractions } from '../services/geminiService';
+import { translate } from '../services/i18n';
 
 interface DocumentDigitizationProps {
   documents: DigitizedDocument[];
@@ -32,7 +33,7 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
   onUpdateDocuments,
   onContinue,
   onBack,
-  selectedLanguage: _selectedLanguage,
+  selectedLanguage,
 }) => {
   const [isProcessingOcr, setIsProcessingOcr] = useState(false);
   const [activeDocPreview, setActiveDocPreview] = useState<DigitizedDocument | null>(
@@ -228,7 +229,7 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
           <span>Step 4: Prescription &amp; Lab Digitization / दस्तावेज़ स्कैन</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          AI OCR Prescription &amp; Lab Report Extraction
+          {selectedLanguage === 'hi' ? 'एआई प्रिस्क्रिप्शन और लैब रिपोर्ट स्कैन' : selectedLanguage === 'ta' ? 'AI மருந்துச் சீட்டு மற்றும் ஆய்வக அறிக்கை ஸ்கேன்' : selectedLanguage === 'te' ? 'AI ప్రిస్క్రిప్షన్ మరియు ల్యాబ్ రిపోర్ట్ స్కాన్' : 'AI OCR Prescription & Lab Report Extraction'}
         </h2>
         <p className="text-slate-600 text-sm sm:text-base mt-1">
           पूर्व पर्चियों एवं जांच रिपोर्ट को स्कैन करें — दवाइयां व लैब परिणाम स्वतः डिजिटल रूप में तैयार होंगे
@@ -262,7 +263,7 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
               <div className="w-12 h-12 rounded-2xl bg-white text-indigo-700 flex items-center justify-center mb-2 group-hover:scale-110 transition border border-indigo-200 shadow-xs">
                 <Camera className="w-6 h-6" />
               </div>
-              <p className="text-sm font-bold text-slate-900">Live Kiosk Camera</p>
+              <p className="text-sm font-bold text-slate-900">{selectedLanguage === 'hi' ? 'लाइव कियोस्क कैमरा' : selectedLanguage === 'ta' ? 'நேரடி கியாஸ்க் கேமரா' : selectedLanguage === 'te' ? 'లైవ్ కియోస్క్ కెమెరా' : 'Live Kiosk Camera'}</p>
               <p className="text-[11px] text-indigo-700 mt-0.5">Snap directly from scanner</p>
             </button>
 
@@ -276,7 +277,7 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
               <div className="w-12 h-12 rounded-2xl bg-slate-50 text-indigo-700 flex items-center justify-center mb-2 group-hover:scale-110 transition border border-slate-200 shadow-xs">
                 <Upload className="w-6 h-6" />
               </div>
-              <p className="text-sm font-bold text-slate-900">Upload File</p>
+              <p className="text-sm font-bold text-slate-900">{selectedLanguage === 'hi' ? 'फ़ाइल अपलोड करें' : selectedLanguage === 'ta' ? 'கோப்பைப் பதிவேற்றவும்' : selectedLanguage === 'te' ? 'ఫైల్ అప్‌లోడ్ చేయండి' : 'Upload File'}</p>
               <p className="text-[11px] text-slate-500 mt-0.5">JPG, PNG, or PDF report</p>
             </div>
           </div>

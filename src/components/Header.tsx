@@ -79,10 +79,12 @@ export const Header: React.FC<HeaderProps> = ({
       .then(data => setStationConfig(data))
       .catch(err => console.error('Failed to fetch kiosk config', err));
       
+    const ALLOWED_CODES = ['en', 'te', 'ta', 'kn', 'ml', 'mr'];
     fetch('/api/languages')
       .then(res => res.json())
       .then((data: any[]) => {
-         setLanguages(data.map(l => ({ code: l.code, nativeName: l.native_name })));
+         const list = (Array.isArray(data) ? data : []).filter(l => ALLOWED_CODES.includes(l.code));
+         setLanguages(list.map(l => ({ code: l.code, nativeName: l.native_name || l.nativeName })));
       })
       .catch(err => console.error('Failed to fetch languages', err));
   }, []);

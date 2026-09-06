@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Users, Cigarette, Wine, Briefcase, ArrowLeft, ArrowRight, CheckSquare, Square } from 'lucide-react';
 import { FamilyHistory, HistoryObject, LanguageCode, PersonalHistory } from '../types';
+import { translate } from '../services/i18n';
 
 interface FamilyPersonalHistoryProps {
   historyObject: HistoryObject;
@@ -41,7 +42,7 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
   onUpdateHistory,
   onContinue,
   onBack,
-  selectedLanguage: _selectedLanguage,
+  selectedLanguage,
 }) => {
   const [family, setFamily] = useState<FamilyHistory>(historyObject.familyHistory || DEFAULT_FAMILY);
   const [personal, setPersonal] = useState<PersonalHistory>(historyObject.personalHistory || DEFAULT_PERSONAL);
@@ -79,7 +80,7 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
           <Users className="w-4 h-4 text-indigo-600" />
           <span>Family &amp; Personal History / पारिवारिक व व्यक्तिगत इतिहास</span>
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Family &amp; Social History</h2>
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{translate('familyHistory', selectedLanguage)}</h2>
         <p className="text-slate-600 text-sm mt-1">परिवार में बीमारियाँ और व्यक्तिगत आदतें बताएं</p>
       </div>
 
@@ -121,13 +122,13 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
             noneFamily ? 'bg-violet-50 border-indigo-400 text-indigo-800' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-400'
           }`}
         >
-          ✓ No significant family history
+          ✓ {selectedLanguage === 'hi' ? 'परिवार में कोई महत्वपूर्ण बीमारी नहीं' : selectedLanguage === 'ta' ? 'குடும்பத்தில் குறிப்பிடத்தக்க வரலாறு இல்லை' : selectedLanguage === 'te' ? 'కుటుంబంలో ముఖ్యమైన చరిత్ర లేదు' : 'No significant family history'}
         </button>
       </div>
 
       {/* Personal / Social History */}
       <div className="stitch-card p-6 mb-5">
-        <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">Personal / Social History</h3>
+        <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">{selectedLanguage === 'hi' ? 'व्यक्तिगत / सामाजिक इतिहास' : selectedLanguage === 'ta' ? 'தனிப்பட்ட / சமூக வரலாறு' : selectedLanguage === 'te' ? 'వ్యక్తిగత / సామాజిక చరిత్ర' : 'Personal / Social History'}</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Smoking */}
           <div>
@@ -191,10 +192,10 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
       <div className="flex items-center justify-between gap-4">
         <button onClick={onBack} className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm">
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Symptom Interview</span>
+          <span>{selectedLanguage === 'hi' ? 'लक्षण इंटरव्यू पर वापस जाएँ' : selectedLanguage === 'ta' ? 'அறிகுறி நேர்காணலுக்குத் திரும்பு' : selectedLanguage === 'te' ? 'లక్షణాల ఇంటర్వ్యూకు తిరిగి వెళ్ళండి' : 'Back to Symptom Interview'}</span>
         </button>
         <button onClick={handleContinue} className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98">
-          <span>Save &amp; Proceed to Document Scan</span>
+          <span>{selectedLanguage === 'hi' ? 'सहेजें और दस्तावेज़ स्कैन पर जाएँ' : selectedLanguage === 'ta' ? 'சேமித்து ஆவண ஸ்கேனுக்குச் செல்லவும்' : selectedLanguage === 'te' ? 'సేవ్ చేసి పత్రాల స్కాన్‌కు వెళ్ళండి' : 'Save & Proceed to Document Scan'}</span>
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>

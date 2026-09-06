@@ -8,6 +8,10 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { executeQuery, inMemoryDb } from './src/db';
+import { verifyAndRegister, verifyAndRegisterSchema, AbdmApiError, OtpExpiredError } from './src/services/patientVerificationWorkflow';
+import { abdmTokenManager } from './src/services/abdmTokenManager';
+import { decodeAbhaQr } from './src/services/abdmQrDecoder';
+import { isAbdmConfigured } from './src/services/abdmConfig';
 
 dotenv.config();
 
@@ -91,12 +95,17 @@ app.get('/api/kiosk/config', async (_req, res) => {
   res.json(inMemoryDb.kioskStations[0]);
 });
 
+const ALLOWED_LANGUAGE_CODES = ['en', 'te', 'ta', 'kn', 'ml', 'mr'];
+
 app.get('/api/languages', async (_req, res) => {
   const { rows, fromDb } = await executeQuery(
-    'SELECT * FROM supported_languages WHERE is_active = 1 ORDER BY sort_order ASC'
+    "SELECT * FROM supported_languages WHERE is_active = 1 AND code IN ('en', 'te', 'ta', 'kn', 'ml', 'mr') ORDER BY sort_order ASC"
   );
   if (fromDb && rows.length > 0) {
-    return res.json(rows);
+    const filtered = rows.filter((r: any) => ALLOWED_LANGUAGE_CODES.includes(r.code));
+    if (filtered.length > 0) {
+      return res.json(filtered);
+    }
   }
   res.json(inMemoryDb.supportedLanguages);
 });
@@ -140,59 +149,220 @@ app.get('/api/socrates/questions/:complaintId', async (req, res) => {
 // Patient Master Registry & Search
 // ──────────────────────────────────────────────
 app.get('/api/patients/search', async (req, res) => {
-  const query = (req.query.query as string || '').trim();
-  if (!query) {
+  const rawQuery = (req.query.query as string || '').trim();
+  if (!rawQuery) {
     return res.json([]);
   }
 
+  const cleanDigits = rawQuery.replace(/\D/g, '');
+  const abhaFormatted = cleanDigits.length === 14
+    ? cleanDigits.replace(/(\d{2})(\d{4})(\d{4})(\d{4})/, '$1-$2-$3-$4')
+    : rawQuery;
+  const phone10 = cleanDigits.length >= 10 ? cleanDigits.slice(-10) : cleanDigits;
+  const phoneE164 = `+91${phone10}`;
+
   const { rows, fromDb } = await executeQuery(
-    'SELECT * FROM patients WHERE abha_id = ? OR aadhaar_last4 = ? OR phone = ? LIMIT 5',
-    [query, query, query]
+    `SELECT * FROM patients 
+     WHERE abha_id IN (?, ?) 
+        OR abha_address = ?
+        OR aadhaar_number = ? 
+        OR aadhaar_last4 = ? 
+        OR phone IN (?, ?, ?, ?)
+        OR LOWER(full_name) = LOWER(?)
+     LIMIT 5`,
+    [rawQuery, abhaFormatted, rawQuery.toLowerCase(), cleanDigits, cleanDigits.slice(-4), rawQuery, phone10, phoneE164, cleanDigits, rawQuery]
   );
 
-  if (fromDb) {
+  if (fromDb && rows.length > 0) {
     return res.json(rows);
   }
 
-  const matches = inMemoryDb.patients.filter(
-    (p) =>
-      p.abhaId === query ||
-      p.aadhaarLast4 === query ||
-      p.phone === query ||
-      p.fullName?.toLowerCase().includes(query.toLowerCase())
-  );
+  const matches = inMemoryDb.patients.filter((p) => {
+    const pAbha = (p.abhaId || p.abha_id || '').replace(/\D/g, '');
+    const pPhone = (p.phone || '').replace(/\D/g, '');
+    const pAadhaar = (p.aadhaarNumber || p.aadhaar_number || '').replace(/\D/g, '');
+    const pAddress = (p.abhaAddress || p.abha_address || '').toLowerCase();
+    const pName = (p.fullName || p.full_name || '').toLowerCase();
+
+    return (
+      (cleanDigits && (pAbha === cleanDigits || pPhone.endsWith(phone10) || pAadhaar === cleanDigits || pAadhaar.endsWith(cleanDigits.slice(-4)))) ||
+      (rawQuery.includes('@') && pAddress === rawQuery.toLowerCase()) ||
+      pName === rawQuery.toLowerCase()
+    );
+  });
+
   res.json(matches);
 });
 
 app.post('/api/patients', async (req, res) => {
   const patient = req.body;
-  const id = patient.id || `PAT-${Date.now().toString().slice(-6)}`;
+  // Generate robust collision-free unique patient ID if not provided
+  const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const id = patient.id && patient.id.startsWith('PAT-')
+    ? patient.id 
+    : `PAT-${Date.now().toString(36).toUpperCase().slice(-4)}${randomSuffix}`;
+
+  const abhaDigits = String(patient.abhaId || '').replace(/\D/g, '').slice(0, 14);
+  const abhaId = abhaDigits.length === 14
+    ? abhaDigits.replace(/(\d{2})(\d{4})(\d{4})(\d{4})/, '$1-$2-$3-$4')
+    : (patient.abhaId || null);
+
+  const abhaAddress = patient.abhaAddress ? String(patient.abhaAddress).trim().toLowerCase() : null;
+  const aadhaarDigits = String(patient.aadhaarNumber || '').replace(/\D/g, '');
+  const aadhaarNumber = aadhaarDigits.length === 12 ? aadhaarDigits : null;
+  const aadhaarLast4 = aadhaarNumber ? aadhaarNumber.slice(-4) : (patient.aadhaarLast4 || null);
+
+  const cleanPhone = patient.phone ? String(patient.phone).replace(/\D/g, '').slice(-10) : '';
+  const phone = cleanPhone ? `+91${cleanPhone}` : (patient.phone || null);
+
+  const newRecord = {
+    id,
+    abhaId,
+    abhaAddress,
+    aadhaarNumber,
+    aadhaarLast4,
+    fullName: patient.fullName || 'Registered Patient',
+    age: parseInt(String(patient.age), 10) || 30,
+    gender: patient.gender || 'Other',
+    phone,
+    city: patient.city || '',
+    state: patient.state || '',
+    bloodGroup: patient.bloodGroup || 'O+',
+  };
 
   await executeQuery(
-    `INSERT INTO patients (id, abha_id, aadhaar_last4, full_name, age, gender, phone, city, state, blood_group)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE full_name=VALUES(full_name), age=VALUES(age), phone=VALUES(phone)`,
+    `INSERT INTO patients (id, abha_id, abha_address, aadhaar_number, aadhaar_last4, full_name, age, gender, phone, city, state, blood_group)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE 
+       full_name=VALUES(full_name), 
+       age=VALUES(age), 
+       gender=VALUES(gender),
+       phone=VALUES(phone),
+       city=VALUES(city),
+       state=VALUES(state),
+       blood_group=VALUES(blood_group)`,
     [
-      id,
-      patient.abhaId || null,
-      patient.aadhaarLast4 || null,
-      patient.fullName || 'Walk-in Patient',
-      patient.age || 30,
-      patient.gender || 'Prefer not to say',
-      patient.phone || null,
-      patient.city || null,
-      patient.state || null,
-      patient.bloodGroup || null,
+      newRecord.id,
+      newRecord.abhaId,
+      newRecord.abhaAddress,
+      newRecord.aadhaarNumber,
+      newRecord.aadhaarLast4,
+      newRecord.fullName,
+      newRecord.age,
+      newRecord.gender,
+      newRecord.phone,
+      newRecord.city,
+      newRecord.state,
+      newRecord.bloodGroup,
     ]
   );
 
-  const idx = inMemoryDb.patients.findIndex((p) => p.id === id);
-  const record = { ...patient, id };
-  if (idx >= 0) inMemoryDb.patients[idx] = record;
-  else inMemoryDb.patients.push(record);
+  const idx = inMemoryDb.patients.findIndex((p) => p.id === id || (phone && (p.phone === phone || p.phone?.endsWith(cleanPhone))));
+  if (idx >= 0) inMemoryDb.patients[idx] = { ...inMemoryDb.patients[idx], ...newRecord };
+  else inMemoryDb.patients.unshift(newRecord);
 
-  res.json({ success: true, patient: record });
+  console.info(`[Patient Registry] Successfully registered/updated patient ${newRecord.id} (${newRecord.fullName})`);
+  res.json({ success: true, patient: newRecord });
 });
+
+// Unified ABDM/local patient verification and registration workflow.
+app.post('/api/patient/verify-and-register', async (req, res) => {
+  try {
+    const parsed = verifyAndRegisterSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        error: 'Invalid patient verification request',
+        code: 'VALIDATION_ERROR',
+        details: parsed.error.flatten(),
+      });
+    }
+
+    const result = await verifyAndRegister(parsed.data);
+    const httpStatus = result.status === 'REGISTRATION_REQUIRED' ? 202 : 200;
+    return res.status(httpStatus).json(result);
+
+  } catch (error: any) {
+    console.error('[Patient Verify] Workflow error:', error?.message || error);
+
+    // OTP expired — 410 Gone
+    if (error?.name === 'OtpExpiredError') {
+      return res.status(410).json({ error: error.message, code: 'OTP_EXPIRED' });
+    }
+
+    // ABDM gateway returned a non-2xx response — 502 Bad Gateway
+    if (error?.name === 'AbdmApiError') {
+      return res.status(502).json({
+        error: error.message,
+        code: 'ABDM_API_ERROR',
+        abdmStatus: error.httpStatus,
+        abdmBody: error.body,
+      });
+    }
+
+    // Request timed out — 504 Gateway Timeout
+    if (error?.name === 'AbortError' || error?.message?.includes('timed out')) {
+      return res.status(504).json({ error: 'ABDM request timed out. Please retry.', code: 'ABDM_TIMEOUT' });
+    }
+
+    // Validation / input errors (thrown by normalisation helpers) — 400
+    const inputErrors = ['must contain', 'must be an', 'required for', 'Aadhaar', 'ABHA ID', 'Mobile'];
+    if (inputErrors.some((phrase) => error?.message?.includes(phrase))) {
+      return res.status(400).json({ error: error.message, code: 'INPUT_ERROR' });
+    }
+
+    // Generic fallback — 500
+    return res.status(500).json({
+      error: error?.message || 'Patient verification failed unexpectedly.',
+      code: 'PATIENT_VERIFICATION_FAILED',
+    });
+  }
+});
+
+// ──────────────────────────────────────────────
+// ABDM QR Code Decoder
+// ──────────────────────────────────────────────
+
+/**
+ * POST /api/abdm/qr/decode
+ * Decodes a base64-encoded ABHA card QR image and returns the normalised
+ * demographic payload.  The client can then pass this as `demographicPayload`
+ * in a subsequent /api/patient/verify-and-register call.
+ */
+app.post('/api/abdm/qr/decode', async (req, res) => {
+  try {
+    const { imageBase64 } = req.body as { imageBase64?: string };
+    if (!imageBase64 || typeof imageBase64 !== 'string') {
+      return res.status(400).json({ error: 'imageBase64 is required', code: 'MISSING_IMAGE' });
+    }
+    const payload = await decodeAbhaQr(imageBase64);
+    return res.json({ success: true, payload });
+  } catch (error: any) {
+    console.error('[ABHA QR] Decode error:', error?.message);
+    return res.status(422).json({
+      error: error?.message || 'Failed to decode ABHA QR code',
+      code: 'QR_DECODE_FAILED',
+    });
+  }
+});
+
+// ──────────────────────────────────────────────
+// ABDM Integration Status
+// ──────────────────────────────────────────────
+
+/**
+ * GET /api/abdm/status
+ * Returns the live status of the ABDM token manager and integration health.
+ * Useful for ops dashboards and the /api/health endpoint.
+ */
+app.get('/api/abdm/status', (_req, res) => {
+  res.json({
+    configured: isAbdmConfigured(),
+    tokenManager: abdmTokenManager.status(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
+
 
 // ──────────────────────────────────────────────
 // OPD Queue Tokens & Real-time Live Queue
@@ -1100,16 +1270,23 @@ app.post('/api/feedback/correction', async (req, res) => {
 // ABHA OTP & Verification (Two-step flow)
 // ──────────────────────────────────────────────
 app.post('/api/abdm/otp/send', (req, res) => {
-  const { aadhaarLast4 } = req.body;
+  const aadhaarNumber = String(req.body.aadhaarNumber || req.body.aadhaarLast4 || '').replace(/\D/g, '');
+  if (aadhaarNumber.length !== 12) {
+    return res.status(400).json({ error: 'Aadhaar number must contain exactly 12 digits' });
+  }
   res.json({
     status: 'OTP_SENT',
-    message: `6-digit OTP dispatched to Aadhaar-linked mobile ending in ${aadhaarLast4 || 'XXXX'}`,
+    message: `6-digit OTP dispatched to Aadhaar-linked mobile ending in ${aadhaarNumber.slice(-4)}`,
     transactionId: `TX-${Date.now()}`,
   });
 });
 
 app.post('/api/abdm/otp/verify', (req, res) => {
-  const { otp, aadhaarLast4 } = req.body;
+  const aadhaarNumber = String(req.body.aadhaarNumber || req.body.aadhaarLast4 || '').replace(/\D/g, '');
+  const { otp } = req.body;
+  if (aadhaarNumber.length !== 12) {
+    return res.status(400).json({ error: 'Aadhaar number must contain exactly 12 digits' });
+  }
   if (!otp || otp.length !== 6) {
     return res.status(400).json({ error: 'Invalid 6-digit OTP' });
   }
@@ -1118,7 +1295,7 @@ app.post('/api/abdm/otp/verify', (req, res) => {
   res.json({
     status: 'VERIFIED',
     abhaId,
-    abhaAddress: `patient.${aadhaarLast4 || 'user'}@abdm`,
+    abhaAddress: `patient.${aadhaarNumber.slice(-4)}@abdm`,
     message: 'ABHA successfully authenticated',
   });
 });
@@ -1457,6 +1634,7 @@ Answer in the patient's language or English if language is en.`;
 // Server Listener & Vite Integration
 // ──────────────────────────────────────────────
 async function startServer() {
+  abdmTokenManager.start();
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
       server: { middlewareMode: true },

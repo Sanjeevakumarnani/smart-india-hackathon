@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Volume2, Check, ArrowRight, Languages, Loader2 } from 'lucide-react';
+import { Volume2, Check, ArrowRight, Languages, Loader2, Activity, ShieldCheck, Mic } from 'lucide-react';
 import { LanguageCode } from '../types';
 import { speechService } from '../services/speechService';
 
@@ -31,6 +31,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const ALLOWED_LANGUAGE_CODES: LanguageCode[] = ['en', 'te', 'ta', 'kn', 'ml', 'mr'];
+
     fetch('/api/languages')
       .then((res) => {
         if (!res.ok) throw new Error('Failed to fetch languages');
@@ -38,34 +40,48 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
       })
       .then((data: any[]) => {
         const NATIVE_PROMPTS: Record<string, string> = {
-          hi: 'नमस्ते! कृपया अपनी पसंदीदा भाषा चुनें और आगे बढ़ें।',
           en: 'Welcome. Please select your preferred language to proceed.',
-          ta: 'வணக்கம்! தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
           te: 'స్వాగతం! దయచేసి మీ ప్రాధాన్యత గల భాషను ఎంచుకోండి.',
-          bn: 'নমস্কার! এগিয়ে যেতে আপনার পছন্দের ভাষা নির্বাচন করুন।',
-          mr: 'नमस्कार! कृपया पुढे जाण्यासाठी आपली भाषा निवडा.',
-          gu: 'નમસ્તે! ચાલુ રાખવા માટે કૃપા કરીને તમારી ભાષા પસંદ કરો.',
+          ta: 'வணக்கம்! தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
           kn: 'ನಮಸ್ಕಾರ! ಮುಂದುವರಿಯಲು ದಯವಿಟ್ಟು ನಿಮ್ಮ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.',
-          pa: 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਅੱਗੇ ਵਧਣ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ।',
           ml: 'സ്വാഗതം! തുടരാൻ നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക.',
-          or: 'ନମସ୍କାର! ଆଗକୁ ବଢ଼ିବା ପାଇଁ ଦୟାକରି ଆପଣଙ୍କ ଭାଷା ବାଛନ୍ତୁ।',
-          as: 'নমস্কাৰ! অনুগ্ৰহ কৰি আগবাঢ়িবলৈ আপোনাৰ ভাষা বাছক।',
+          mr: 'नमस्कार! कृपया पुढे जाण्यासाठी आपली भाषा निवडा.',
         };
 
-        const mapped = data.map((lang) => ({
+        const filtered = (Array.isArray(data) ? data : []).filter((lang: any) =>
+          ALLOWED_LANGUAGE_CODES.includes(lang.code as LanguageCode)
+        );
+
+        const mapped = filtered.map((lang) => ({
           code: lang.code as LanguageCode,
           name: lang.name,
-          nativeName: lang.native_name,
+          nativeName: lang.native_name || lang.nativeName || lang.name,
           bcp47: lang.bcp47,
-          flagEmoji: lang.flag_emoji,
-          sortOrder: lang.sort_order,
+          flagEmoji: lang.flag_emoji || lang.flagEmoji || '🇮🇳',
+          sortOrder: lang.sort_order ?? lang.sortOrder ?? 0,
           audioPrompt: NATIVE_PROMPTS[lang.code] || `Please select ${lang.name}`,
         }));
         setLanguages(mapped.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
         setIsLoading(false);
       })
       .catch((err) => {
-        setError(err.message);
+        console.error('API language fetch error, falling back to static config:', err);
+        const NATIVE_PROMPTS: Record<string, string> = {
+          en: 'Welcome. Please select your preferred language to proceed.',
+          te: 'స్వాగతం! దయచేసి మీ ప్రాధాన్యత గల భాషను ఎంచుకోండి.',
+          ta: 'வணக்கம்! தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
+          kn: 'ನಮಸ್ಕಾರ! ಮುಂದುವರಿಯಲು ದಯವಿಟ್ಟು ನಿಮ್ಮ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.',
+          ml: 'സ്വാഗതം! തുടരാൻ നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക.',
+          mr: 'नमस्कार! कृपया पुढे जाण्यासाठी आपली भाषा निवडा.',
+        };
+        setLanguages([
+          { code: 'en', name: 'English', nativeName: 'English', bcp47: 'en-IN', flagEmoji: '🇬🇧', sortOrder: 1, audioPrompt: NATIVE_PROMPTS.en },
+          { code: 'te', name: 'Telugu', nativeName: 'తెలుగు', bcp47: 'te-IN', flagEmoji: '🇮🇳', sortOrder: 2, audioPrompt: NATIVE_PROMPTS.te },
+          { code: 'ta', name: 'Tamil', nativeName: 'தமிழ்', bcp47: 'ta-IN', flagEmoji: '🇮🇳', sortOrder: 3, audioPrompt: NATIVE_PROMPTS.ta },
+          { code: 'kn', name: 'Kannada', nativeName: 'ಕನ್ನಡ', bcp47: 'kn-IN', flagEmoji: '🇮🇳', sortOrder: 4, audioPrompt: NATIVE_PROMPTS.kn },
+          { code: 'ml', name: 'Malayalam', nativeName: 'മലയാളം', bcp47: 'ml-IN', flagEmoji: '🇮🇳', sortOrder: 5, audioPrompt: NATIVE_PROMPTS.ml },
+          { code: 'mr', name: 'Marathi', nativeName: 'मराठी', bcp47: 'mr-IN', flagEmoji: '🇮🇳', sortOrder: 6, audioPrompt: NATIVE_PROMPTS.mr },
+        ]);
         setIsLoading(false);
       });
   }, []);
@@ -80,13 +96,15 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
     if (isAudioNarration) {
       speechService.speak(lang.audioPrompt || '', lang.code);
     }
+    // Automatically advance to the next step immediately
+    onContinue();
   };
 
   if (isLoading) {
     return (
       <div className="w-full max-w-5xl mx-auto px-4 py-6 flex flex-col items-center justify-center min-h-[50vh]">
         <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mb-4" />
-        <p className="text-slate-600">Loading languages...</p>
+        <p className="text-slate-600 font-medium">Loading languages...</p>
       </div>
     );
   }
@@ -94,114 +112,46 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
   if (error) {
     return (
       <div className="w-full max-w-5xl mx-auto px-4 py-6 flex flex-col items-center justify-center min-h-[50vh]">
-        <p className="text-red-500 mb-4">Error loading languages: {error}</p>
-        <button onClick={() => window.location.reload()} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Retry</button>
+        <p className="text-red-500 mb-4 font-medium">Error loading languages: {error}</p>
+        <button onClick={() => window.location.reload()} className="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-md">Retry</button>
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-6 flex flex-col items-center">
-      <div className="w-full stitch-card p-6 sm:p-8 mb-8 flex flex-col lg:flex-row items-center justify-between gap-8">
-        <div className="flex-1 text-left">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-4 shadow-xs">
-            <Languages className="w-4 h-4 text-indigo-600" />
-            <span>Step 1: Choose Your Language / भाषा चुनें</span>
-          </div>
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-slate-900 tracking-tight leading-tight">
-            Welcome to <span className="text-indigo-600">MediKiosk</span>
-            <span className="text-amber-500 font-extrabold">+</span>
-          </h1>
-          <p className="text-base sm:text-lg text-slate-600 mt-3 font-normal max-w-xl leading-relaxed">
-            Smart, multilingual OPD intake terminal with instant voice triage, ABHA digital health records, and AI-assisted clinical interviews.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button
-              id="hero-get-started-btn"
-              onClick={onContinue}
-              className="py-3.5 px-7 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-2.5 shadow-lg shadow-indigo-600/25 transition-all transform active:scale-98"
-            >
-              <span>Get Started (शुरू करें)</span>
-              <ArrowRight className="w-5 h-5 stroke-[2.5]" />
-            </button>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold">
-              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-              <span>Selected: {languages.find((l) => l.code === selectedLanguage)?.name} ({selectedLanguage.toUpperCase()})</span>
-            </div>
-          </div>
+    <div className="w-full max-w-4xl mx-auto px-4 py-3 sm:py-5 flex flex-col justify-center items-center min-h-[calc(100vh-90px)] select-none">
+      {/* Compact Header Banner */}
+      <div className="text-center mb-3 sm:mb-4">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200/80 text-indigo-800 text-xs font-bold tracking-wide mb-1.5 shadow-xs">
+          <Languages className="w-3.5 h-3.5 text-indigo-600" />
+          <span>Step 1 of 6 • Select Your Language</span>
         </div>
 
-        <div className="flex-shrink-0 flex items-center justify-center">
-          <svg viewBox="0 0 460 340" className="w-full max-w-[320px] sm:max-w-[380px] h-auto" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <circle cx="230" cy="160" r="130" fill="#f5f3ff" />
-            <rect x="320" y="30" width="60" height="60" rx="16" fill="#fef3c7" stroke="#f59e0b" strokeWidth="2" strokeDasharray="5 5" />
-            <circle cx="70" cy="90" r="26" fill="#ede9fe" />
-            <circle cx="390" cy="200" r="16" fill="#fde68a" />
-            <polygon points="100,240 122,205 144,240" fill="#fbbf24" opacity="0.8" />
+        <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+          Choose Your Language
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
+          Touch your preferred language to begin OPD intake instantly
+        </p>
 
-            <g stroke="#cbd5e1" strokeWidth="1.5" strokeDasharray="4 4">
-              <line x1="50" y1="170" x2="140" y2="170" />
-              <line x1="50" y1="188" x2="120" y2="188" />
-              <line x1="310" y1="260" x2="400" y2="260" />
-            </g>
-
-            <g transform="translate(50, 45)" filter="drop-shadow(0 4px 10px rgba(99, 102, 241, 0.12))">
-              <rect width="105" height="60" rx="12" fill="#ffffff" stroke="#e0e7ff" strokeWidth="1.5" />
-              <circle cx="18" cy="20" r="7" fill="#e0e7ff" />
-              <path d="M15 20h6M18 17v6" stroke="#4f46e5" strokeWidth="1.5" strokeLinecap="round" />
-              <rect x="32" y="17" width="50" height="7" rx="3.5" fill="#6366f1" />
-              <rect x="14" y="36" width="75" height="5" rx="2.5" fill="#cbd5e1" />
-              <rect x="14" y="45" width="45" height="4" rx="2" fill="#f1f5f9" />
-            </g>
-
-            <g transform="translate(310, 130)" filter="drop-shadow(0 4px 10px rgba(245, 158, 11, 0.15))">
-              <rect width="110" height="65" rx="12" fill="#ffffff" stroke="#fde68a" strokeWidth="1.5" />
-              <rect x="12" y="14" width="28" height="10" rx="3" fill="#f59e0b" />
-              <rect x="46" y="16" width="50" height="6" rx="3" fill="#e2e8f0" />
-              <line x1="12" y1="36" x2="98" y2="36" stroke="#f1f5f9" strokeWidth="2" />
-              <circle cx="18" cy="48" r="4.5" fill="#10b981" />
-              <rect x="28" y="46" width="55" height="5" rx="2.5" fill="#cbd5e1" />
-            </g>
-
-            <rect x="80" y="270" width="290" height="7" rx="3.5" fill="#e2e8f0" />
-
-            <path d="M175 275v-58c0-12 10-20 20-20h50c11 0 20 8 20 20v58" fill="#4f46e5" />
-            <path d="M210 197l15 18 15-18h-30z" fill="#ffffff" />
-            <circle cx="225" cy="155" r="23" fill="#fcd34d" />
-            <path d="M202 155c0-14 10-25 23-25 13 0 23 11 23 25 0 4-1 7-3 10-2-11-9-16-20-16s-19 5-20 16c-2-3-3-6-3-10z" fill="#1e293b" />
-
-            <path d="M175 220l32 28" stroke="#4f46e5" strokeWidth="12" strokeLinecap="round" />
-            <path d="M265 220l-22 28" stroke="#4f46e5" strokeWidth="12" strokeLinecap="round" />
-            <circle cx="207" cy="248" r="6" fill="#fcd34d" />
-            <circle cx="243" cy="248" r="6" fill="#fcd34d" />
-
-            <rect x="184" y="202" width="76" height="48" rx="5" fill="#f59e0b" stroke="#d97706" strokeWidth="1.5" />
-            <rect x="188" y="206" width="68" height="40" rx="3" fill="#1e1b4b" />
-            <line x1="194" y1="215" x2="220" y2="215" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" />
-            <line x1="194" y1="222" x2="238" y2="222" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" />
-            <line x1="194" y1="229" x2="212" y2="229" stroke="#34d399" strokeWidth="2" strokeLinecap="round" />
-            <circle cx="242" cy="233" r="6" fill="#f59e0b" opacity="0.9" />
-
-            <path d="M166 254h112l-10 16h-92l-10-16z" fill="#fbbf24" stroke="#d97706" strokeWidth="1.2" />
-            <rect x="208" y="260" width="28" height="3" rx="1.5" fill="#d97706" />
-
-            <path d="M345 85l2.5 6 6 2.5-6 2.5-2.5 6-2.5-6-6-2.5 6-2.5 2.5-6z" fill="#f59e0b" />
-            <path d="M115 130l2 4.5 4.5 2-4.5 2-2 4.5-2-4.5-4.5-2 4.5-2 2-4.5z" fill="#6366f1" />
-            <circle cx="185" cy="110" r="3.5" fill="#f59e0b" />
-          </svg>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-indigo-50/90 text-indigo-700 text-[11px] font-semibold border border-indigo-100">
+            <Activity className="w-3 h-3 text-indigo-600" />
+            Express Intake
+          </span>
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-emerald-50/90 text-emerald-700 text-[11px] font-semibold border border-emerald-100">
+            <ShieldCheck className="w-3 h-3 text-emerald-600" />
+            ABDM Compliant
+          </span>
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-purple-50/90 text-purple-700 text-[11px] font-semibold border border-purple-100">
+            <Mic className="w-3 h-3 text-purple-600" />
+            Voice Guided
+          </span>
         </div>
       </div>
 
-      <div className="w-full mb-4 flex items-center justify-between">
-        <p className="text-sm font-bold text-slate-700 uppercase tracking-wider font-mono">
-          Available Kiosk Languages ({languages.length})
-        </p>
-        <p className="text-xs text-slate-500 font-medium">
-          Touch any card to switch interface language
-        </p>
-      </div>
-
-      <div className="w-full grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 sm:gap-4 mb-8">
+      {/* 3 Up and 3 Down Grid (Exactly 3 columns, 2 rows for 6 languages) */}
+      <div className="w-full grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 my-2">
         {languages.map((lang) => {
           const isSelected = selectedLanguage === lang.code;
 
@@ -210,39 +160,49 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
               key={lang.code}
               id={`lang-card-${lang.code}`}
               onClick={() => handleCardClick(lang)}
-              className={`relative p-5 rounded-3xl cursor-pointer transition-all duration-200 border-2 flex flex-col justify-between group active:scale-98 ${
+              className={`relative p-4 sm:p-5 rounded-2xl cursor-pointer transition-all duration-150 border flex flex-col justify-between group active:scale-[0.97] h-[115px] sm:h-[125px] ${
                 isSelected
-                  ? 'stitch-card-active scale-[1.02]'
-                  : 'stitch-card hover:border-indigo-400'
+                  ? 'bg-gradient-to-br from-indigo-50 to-purple-50/40 border-indigo-600 ring-2 ring-indigo-500/25 shadow-md scale-[1.01]'
+                  : 'bg-white border-slate-200/90 hover:border-indigo-400 hover:shadow-md hover:-translate-y-0.5'
               }`}
             >
+              {/* Selected Check Badge */}
               {isSelected && (
-                <div className="absolute top-3.5 right-3.5 w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-md">
-                  <Check className="w-4 h-4 stroke-[3]" />
+                <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                  <Check className="w-3 h-3 stroke-[3]" />
                 </div>
               )}
 
               <div>
-                <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-wide">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className="text-base leading-none">{lang.flagEmoji || '🇮🇳'}</span>
+                  <span className="text-[10px] font-bold font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                    {lang.code.toUpperCase()}
+                  </span>
+                </div>
+                <p className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight group-hover:text-indigo-600 transition-colors">
                   {lang.nativeName}
                 </p>
-                <p className="text-sm font-semibold text-slate-600 mt-1">
+                <p className="text-xs font-semibold text-slate-500">
                   {lang.name}
                 </p>
               </div>
 
-              <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between">
+              {/* Bottom Card Controls */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
                 <button
                   type="button"
                   onClick={(e) => handlePreviewAudio(e, lang)}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-50 hover:bg-violet-50 text-slate-700 hover:text-indigo-700 text-xs font-semibold border border-slate-200 transition"
-                  title="Listen pronunciation"
+                  className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-indigo-700 font-bold transition py-0.5"
+                  title={`Listen pronunciation for ${lang.name}`}
                 >
-                  <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
+                  <Volume2 className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform" />
                   <span>Audio</span>
                 </button>
-                <span className="text-[10px] text-slate-400 font-mono font-bold">
-                  {lang.code.toUpperCase()}
+
+                <span className="text-[11px] font-bold text-indigo-600 flex items-center gap-0.5 group-hover:translate-x-0.5 transition-transform">
+                  <span>Select</span>
+                  <ArrowRight className="w-3 h-3" />
                 </span>
               </div>
             </div>
@@ -250,14 +210,10 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         })}
       </div>
 
-      <button
-        id="lang-continue-btn"
-        onClick={onContinue}
-        className="w-full max-w-md py-4 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-lg flex items-center justify-center gap-3 shadow-lg shadow-indigo-600/25 transition-all transform active:scale-98"
-      >
-        <span>Get Started • Proceed to Consent (आगे बढ़ें)</span>
-        <ArrowRight className="w-6 h-6 stroke-[2.5]" />
-      </button>
+      {/* Touchscreen UX Hint */}
+      <p className="text-center text-xs text-slate-400 font-medium mt-2">
+        Touch any language card above to instantly proceed to consent
+      </p>
     </div>
   );
 };

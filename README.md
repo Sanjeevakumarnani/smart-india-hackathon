@@ -53,6 +53,26 @@ npm run dev
 
 Visit **[http://localhost:3000](http://localhost:3000)** in your browser.
 
+### ABDM Patient Verification Integration
+
+The unified endpoint is available at `POST /api/patient/verify-and-register` and supports:
+
+- `path: "abha"` with `action: "lookup"` for ABHA IDs, ABHA addresses, or scanned demographic payloads.
+- `path: "aadhaar"` with `action: "send_otp"` and `action: "verify_otp"`.
+- `path: "mobile"` with `action: "send_otp"` and `action: "verify_otp"`; unknown mobile users receive `202 REGISTRATION_REQUIRED` with the required demographic fields.
+
+ABDM credentials and URLs are intentionally blank environment hooks:
+
+```env
+ABDM_BASE_URL=""
+ABDM_CLIENT_ID=""
+ABDM_CLIENT_SECRET=""
+ABDM_FACILITY_ID=""
+ABDM_TIMEOUT_MS="10000"
+```
+
+The workflow checks MySQL first, encrypts Aadhaar/mobile values with the ABDM public certificate before transmission, and maintains a token refresh hook for `/v3/sessions`. Run `npm run migrate:patient-abdm` once on an existing database to add ABHA address and profile photo columns.
+
 ---
 
 ## Architecture

@@ -40,17 +40,11 @@ class InMemoryDbStore {
 
   supportedLanguages = [
     { id: 'lang-en', code: 'en', name: 'English', native_name: 'English', bcp47: 'en-IN', flag_emoji: '🇬🇧', sort_order: 1 },
-    { id: 'lang-hi', code: 'hi', name: 'Hindi', native_name: 'हिन्दी', bcp47: 'hi-IN', flag_emoji: '🇮🇳', sort_order: 2 },
+    { id: 'lang-te', code: 'te', name: 'Telugu', native_name: 'తెలుగు', bcp47: 'te-IN', flag_emoji: '🇮🇳', sort_order: 2 },
     { id: 'lang-ta', code: 'ta', name: 'Tamil', native_name: 'தமிழ்', bcp47: 'ta-IN', flag_emoji: '🇮🇳', sort_order: 3 },
-    { id: 'lang-te', code: 'te', name: 'Telugu', native_name: 'తెలుగు', bcp47: 'te-IN', flag_emoji: '🇮🇳', sort_order: 4 },
-    { id: 'lang-kn', code: 'kn', name: 'Kannada', native_name: 'ಕನ್ನಡ', bcp47: 'kn-IN', flag_emoji: '🇮🇳', sort_order: 5 },
-    { id: 'lang-ml', code: 'ml', name: 'Malayalam', native_name: 'മലയാളം', bcp47: 'ml-IN', flag_emoji: '🇮🇳', sort_order: 6 },
-    { id: 'lang-mr', code: 'mr', name: 'Marathi', native_name: 'मराठी', bcp47: 'mr-IN', flag_emoji: '🇮🇳', sort_order: 7 },
-    { id: 'lang-bn', code: 'bn', name: 'Bengali', native_name: 'বাংলা', bcp47: 'bn-IN', flag_emoji: '🇮🇳', sort_order: 8 },
-    { id: 'lang-gu', code: 'gu', name: 'Gujarati', native_name: 'ગુજરાતી', bcp47: 'gu-IN', flag_emoji: '🇮🇳', sort_order: 9 },
-    { id: 'lang-pa', code: 'pa', name: 'Punjabi', native_name: 'ਪੰਜਾਬੀ', bcp47: 'pa-IN', flag_emoji: '🇮🇳', sort_order: 10 },
-    { id: 'lang-or', code: 'or', name: 'Odia', native_name: 'ଓଡ଼ିଆ', bcp47: 'or-IN', flag_emoji: '🇮🇳', sort_order: 11 },
-    { id: 'lang-as', code: 'as', name: 'Assamese', native_name: 'অসমীয়া', bcp47: 'as-IN', flag_emoji: '🇮🇳', sort_order: 12 },
+    { id: 'lang-kn', code: 'kn', name: 'Kannada', native_name: 'ಕನ್ನಡ', bcp47: 'kn-IN', flag_emoji: '🇮🇳', sort_order: 4 },
+    { id: 'lang-ml', code: 'ml', name: 'Malayalam', native_name: 'മലയാളം', bcp47: 'ml-IN', flag_emoji: '🇮🇳', sort_order: 5 },
+    { id: 'lang-mr', code: 'mr', name: 'Marathi', native_name: 'मराठी', bcp47: 'mr-IN', flag_emoji: '🇮🇳', sort_order: 6 },
   ];
 
   chiefComplaints = [

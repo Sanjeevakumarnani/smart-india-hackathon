@@ -17,6 +17,7 @@ import {
   Utensils,
 } from 'lucide-react';
 import { AharaViharaDetails, AyushAssessment, HistoryObject, LanguageCode } from '../types';
+import { translate } from '../services/i18n';
 import { AYUSH_DASHAVIDHA_CARDS } from '../data/mockData';
 
 interface AyushParikshaCardsProps {
@@ -32,7 +33,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
   onUpdateHistory,
   onContinue,
   onBack,
-  selectedLanguage: _selectedLanguage,
+  selectedLanguage,
 }) => {
   const [activeDeckIndex, setActiveDeckIndex] = useState(0);
   const [cardsDeck, setCardsDeck] = useState<any[]>(AYUSH_DASHAVIDHA_CARDS);
@@ -198,7 +199,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
           <span>AYUSH Dashavidha Rogi Pariksha / दशविध परीक्षा</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          Ayurvedic Constitution & Rogi Pariksha
+          {selectedLanguage === 'hi' ? 'आयुर्वेदिक प्रकृति और रोगी परीक्षा' : selectedLanguage === 'ta' ? 'ஆயுர்வேத உடலமைப்பு மற்றும் நோயாளி பரிசோதனை' : selectedLanguage === 'te' ? 'ఆయుర్వేద ప్రకృతి మరియు రోగి పరీక్ష' : 'Ayurvedic Constitution & Rogi Pariksha'}
         </h2>
         <p className="text-slate-600 text-sm sm:text-base mt-1">
           प्रकृति, अग्नि, कोष्ठ, धातु सार व सत्व निर्धारण हेतु उपयुक्त विकल्प चुनें
@@ -334,7 +335,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
 
               <div className="mt-5 pt-3 border-t border-[#1e2738] flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-400">
-                  {isSelected ? '✓ Selected' : 'Tap to select'}
+                  {isSelected ? `✓ ${translate('continue', selectedLanguage)}` : selectedLanguage === 'hi' ? 'चुनने के लिए टैप करें' : selectedLanguage === 'ta' ? 'தேர்வு செய்யத் தட்டவும்' : selectedLanguage === 'te' ? 'ఎంచుకోవడానికి నొక్కండి' : 'Tap to select'}
                 </span>
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${

@@ -2,25 +2,11 @@ import { LanguageOption } from '../types';
 
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   {
-    code: 'hi',
-    name: 'Hindi',
-    nativeName: 'हिन्दी',
-    greeting: 'नमस्ते! मेडीकियोस्क में आपका स्वागत है।',
-    audioPrompt: 'नमस्ते! कृपया अपनी पसंदीदा भाषा चुनें और आगे बढ़ें।',
-  },
-  {
     code: 'en',
     name: 'English',
     nativeName: 'English',
     greeting: 'Welcome to MediKiosk+ Health System.',
     audioPrompt: 'Please select your preferred language to begin your registration.',
-  },
-  {
-    code: 'ta',
-    name: 'Tamil',
-    nativeName: 'தமிழ்',
-    greeting: 'வணக்கம்! மெடிகியோஸ்க்கிற்கு வரவேற்கிறோம்.',
-    audioPrompt: 'தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
   },
   {
     code: 'te',
@@ -30,25 +16,11 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     audioPrompt: 'దయచేసి మీ ప్రాధాన్యత గల భాషను ఎంచుకోండి.',
   },
   {
-    code: 'bn',
-    name: 'Bengali',
-    nativeName: 'বাংলা',
-    greeting: 'নমস্কার! মেডিকিয়স্কে স্বাগতম।',
-    audioPrompt: 'চালিয়ে যেতে আপনার পছন্দের ভাষা নির্বাচন করুন।',
-  },
-  {
-    code: 'mr',
-    name: 'Marathi',
-    nativeName: 'मराठी',
-    greeting: 'नमस्कार! मेडीकियोस्क मध्ये आपले स्वागत आहे.',
-    audioPrompt: 'कृपया पुढे जाण्यासाठी आपली भाषा निवडा.',
-  },
-  {
-    code: 'gu',
-    name: 'Gujarati',
-    nativeName: 'ગુજરાતી',
-    greeting: 'નમસ્તે! મેડીકિયોસ્કમાં આપનું સ્વાગત છે.',
-    audioPrompt: 'ચાલુ રાખવા માટે કૃપા કરીને તમારી ભાષા પસંદ કરો.',
+    code: 'ta',
+    name: 'Tamil',
+    nativeName: 'தமிழ்',
+    greeting: 'வணக்கம்! மெடிகியோஸ்க்கிற்கு வரவேற்கிறோம்.',
+    audioPrompt: 'தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
   },
   {
     code: 'kn',
@@ -58,13 +30,6 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     audioPrompt: 'ಮುಂದುವರಿಯಲು ದಯವಿಟ್ಟು ನಿಮ್ಮ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.',
   },
   {
-    code: 'pa',
-    name: 'Punjabi',
-    nativeName: 'ਪੰਜਾਬੀ',
-    greeting: 'ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ! ਮੈਡੀਕਿਓਸਕ ਵਿੱਚ ਜੀ ਆਇਆਂ ਨੂੰ।',
-    audioPrompt: 'ਅੱਗੇ ਵਧਣ ਲਈ ਕਿਰਪਾ ਕਰਕੇ ਆਪਣੀ ਭਾਸ਼ਾ ਚੁਣੋ।',
-  },
-  {
     code: 'ml',
     name: 'Malayalam',
     nativeName: 'മലയാളം',
@@ -72,11 +37,11 @@ export const SUPPORTED_LANGUAGES: LanguageOption[] = [
     audioPrompt: 'തുടരാൻ നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക.',
   },
   {
-    code: 'or',
-    name: 'Odia',
-    nativeName: 'ଓଡ଼ିଆ',
-    greeting: 'ନମସ୍କାର! ମେଡିକିଓସ୍କକୁ ସ୍ୱାଗତ।',
-    audioPrompt: 'ଆଗକୁ ବଢ଼ିବା ପାଇଁ ଦୟାକରି ଆପଣଙ୍କ ଭାଷା ବାଛନ୍ତୁ।',
+    code: 'mr',
+    name: 'Marathi',
+    nativeName: 'मराठी',
+    greeting: 'नमस्कार! मेडीकियोस्क मध्ये आपले स्वागत आहे.',
+    audioPrompt: 'कृपया पुढे जाण्यासाठी आपली भाषा निवडा.',
   },
 ];
 

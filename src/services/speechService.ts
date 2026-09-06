@@ -4,27 +4,28 @@ class SpeechService {
   private synth: SpeechSynthesis | null = null;
   private isSpeaking: boolean = false;
   private currentUtterance: SpeechSynthesisUtterance | null = null;
+  private voices: SpeechSynthesisVoice[] = [];
 
   constructor() {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       this.synth = window.speechSynthesis;
+      this.refreshVoices();
+      this.synth.addEventListener('voiceschanged', () => this.refreshVoices());
     }
+  }
+
+  private refreshVoices(): void {
+    if (this.synth) this.voices = this.synth.getVoices();
   }
 
   public getLanguageCodeBCP47(lang: LanguageCode): string {
     const map: { [key in LanguageCode]: string } = {
-      hi: 'hi-IN',
       en: 'en-IN',
-      ta: 'ta-IN',
       te: 'te-IN',
-      bn: 'bn-IN',
-      mr: 'mr-IN',
-      gu: 'gu-IN',
+      ta: 'ta-IN',
       kn: 'kn-IN',
-      pa: 'pa-IN',
       ml: 'ml-IN',
-      or: 'or-IN',
-      as: 'as-IN',
+      mr: 'mr-IN',
     };
     return map[lang] || 'en-IN';
   }
@@ -33,11 +34,13 @@ class SpeechService {
     text: string,
     language: LanguageCode = 'en',
     onStart?: () => void,
-    onEnd?: () => void
+    onEnd?: () => void,
+    allowDefaultVoiceFallback = true
   ): boolean {
     if (!this.synth) return false;
 
     this.stop();
+    this.refreshVoices();
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = this.getLanguageCodeBCP47(language);
@@ -48,7 +51,7 @@ class SpeechService {
     utterance.pitch = 1.0;
 
     // Try to find a matching natural regional voice using 3-tier matching
-    const voices = this.synth.getVoices();
+    const voices = this.voices.length > 0 ? this.voices : this.synth.getVoices();
     const langPrefix = language.toLowerCase();
     const targetPrefix = targetBcp47.toLowerCase();
 
@@ -83,14 +86,19 @@ class SpeechService {
       if (onEnd) onEnd();
     };
 
-    utterance.onerror = (e) => {
-      console.warn('SpeechSynthesis error:', e);
+    utterance.onerror = () => {
+      console.warn('SpeechSynthesis error: unable to use the selected regional voice.');
       this.isSpeaking = false;
       this.currentUtterance = null;
-      if (onEnd) onEnd();
+      if (matchingVoice && allowDefaultVoiceFallback) {
+        this.speak(text, language, onStart, onEnd, false);
+      } else if (onEnd) {
+        onEnd();
+      }
     };
 
     this.currentUtterance = utterance;
+    this.synth.resume();
     this.synth.speak(utterance);
     return true;
   }

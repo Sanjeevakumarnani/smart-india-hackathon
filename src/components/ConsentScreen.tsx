@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Volume2, Lock, ArrowRight, ArrowLeft, CheckSquare, Square, Info } from 'lucide-react';
 import { ConsentSettings, LanguageCode } from '../types';
 import { speechService } from '../services/speechService';
+import { translate } from '../services/i18n';
 
 interface ConsentScreenProps {
   consent: ConsentSettings;
@@ -23,8 +24,16 @@ export const ConsentScreen: React.FC<ConsentScreenProps> = ({
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   const consentPromptText =
-    selectedLanguage === 'hi'
-      ? 'मेडीकियोस्क आपके स्वास्थ्य परामर्श के लिए आपकी प्राथमिक जानकारी, मेडिकल इतिहास और प्रिस्क्रिप्शन स्कैन का उपयोग करेगा। यह डेटा पूरी तरह सुरक्षित है।'
+    selectedLanguage === 'te'
+      ? 'మెడికియోస్క్ మీ ఆరోగ్య చరిత్ర మరియు లక్షణాలను సేకరిస్తుంది. మీ డేటా సురక్షితంగా ఉంది.'
+      : selectedLanguage === 'ta'
+      ? 'மெடிகியோஸ்க் உங்கள் மருத்துவ வரலாறு மற்றும் அறிகுறிகளை சேகரிக்கிறது. உங்கள் தரவு பாதுகாப்பாக உள்ளது.'
+      : selectedLanguage === 'kn'
+      ? 'ಮೆಡಿಕಿಯೋಸ್ಕ್ ನಿಮ್ಮ ಆರೋಗ್ಯ ಇತಿಹಾಸ ಮತ್ತು ರೋಗಲಕ್ಷಣಗಳನ್ನು ಸಂಗ್ರಹಿಸುತ್ತದೆ. ನಿಮ್ಮ ಮಾಹಿತಿ ಸುರಕ್ಷಿತವಾಗಿದೆ.'
+      : selectedLanguage === 'ml'
+      ? 'മെഡികിയോസ്ക് നിങ്ങളുടെ ആരോഗ്യ ചരിത്രവും ലക്ഷണങ്ങളും ശേഖരിക്കുന്നു. നിങ്ങളുടെ ഡാറ്റ സുരക്ഷിതമാണ്.'
+      : selectedLanguage === 'mr'
+      ? 'मेडीकियोस्क तुमचा वैद्यकीय इतिहास आणि लक्षणे संकलित करतो. तुमचा डेटा सुरक्षित आहे.'
       : 'MediKiosk collects your medical history, symptoms, and scanned prescriptions to assist the doctor with your OPD triage. Your health records are encrypted and protected under ABDM guidelines.';
 
   useEffect(() => {
@@ -79,7 +88,7 @@ export const ConsentScreen: React.FC<ConsentScreenProps> = ({
           <span>Step 1b: DPDP Patient Consent / सहमति पत्र</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          Data Privacy & Medical Consent
+          {selectedLanguage === 'hi' ? 'डेटा गोपनीयता और चिकित्सा सहमति' : selectedLanguage === 'ta' ? 'தரவு தனியுரிமை மற்றும் மருத்துவ ஒப்புதல்' : selectedLanguage === 'te' ? 'డేటా గోప్యత మరియు వైద్య సమ్మతి' : 'Data Privacy & Medical Consent'}
         </h2>
         <p className="text-slate-600 text-sm sm:text-base mt-1">
           डिजिटल पर्सनल डेटा प्रोटेक्शन (DPDP) एक्ट एवं ABDM दिशानिर्देशों के तहत सहमति
@@ -99,7 +108,7 @@ export const ConsentScreen: React.FC<ConsentScreenProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition shadow-sm"
           >
             <Volume2 className="w-3.5 h-3.5" />
-            <span>{isPlayingAudio ? 'Pause Voice' : 'Listen Consent'}</span>
+            <span>{isPlayingAudio ? translate('pauseVoice', selectedLanguage) : `${translate('listen', selectedLanguage)} Consent`}</span>
           </button>
         </div>
 

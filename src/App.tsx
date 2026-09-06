@@ -10,7 +10,6 @@ import {
   QueueToken,
 } from './types';
 import { Header } from './components/Header';
-import { ProgressStepper } from './components/ProgressStepper';
 import { LanguagePicker } from './components/LanguagePicker';
 import { ConsentScreen } from './components/ConsentScreen';
 import { IdentityScreen } from './components/IdentityScreen';
@@ -55,7 +54,7 @@ export function App() {
 
   // Navigation & Kiosk State
   const [currentStep, setCurrentStep] = useState<KioskStep>('LANGUAGE');
-  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>('hi');
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>('en');
   const [sessionCount, setSessionCount] = useState<number>(1);
 
   // Accessibility States
@@ -357,8 +356,8 @@ export function App() {
     >
       {/* Ambient background glow elements */}
       <div className="fixed inset-0 pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[140px]" />
-        <div className="absolute bottom-[-10%] right-[15%] w-[450px] h-[450px] bg-violet-500/10 rounded-full blur-[160px]" />
+        <div className="absolute top-[-10%] left-[20%] w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[140px]" />
+        <div className="absolute bottom-[-10%] right-[15%] w-[450px] h-[450px] bg-violet-500/5 rounded-full blur-[160px]" />
       </div>
 
       <RedFlagNotificationListener />
@@ -376,31 +375,12 @@ export function App() {
         onToggleAudio={() => setIsAudioNarration(!isAudioNarration)}
         onOpenStaffLogin={() => setActiveRoleView('staff_login')}
         language={selectedLanguage}
+        opdType={opdType}
+        onNavigateStep={(step) => setCurrentStep(step)}
       />
 
       {/* Main Kiosk Content Stage */}
-      <main className="flex-1 flex flex-col justify-start py-4 relative z-10">
-        {/* Progress Stepper (Visible during Kiosk Intake Flow) */}
-        {[
-          'LANGUAGE',
-          'CONSENT',
-          'IDENTITY',
-          'VITALS',
-          'COMPLAINT_SELECT',
-          'CONVERSATION',
-          'FAMILY_HISTORY',
-          'AYUSH_PARIKSHA',
-          'DOC_SCAN',
-          'SESSION_PURGE',
-          'SUMMARY_REVIEW',
-        ].includes(currentStep) && (
-          <ProgressStepper
-            currentStep={currentStep}
-            opdType={opdType}
-            onStepClick={(step) => setCurrentStep(step)}
-          />
-        )}
-
+      <main className="flex-1 flex flex-col justify-start py-2 relative z-10">
         {/* Dynamic View Router */}
         {currentStep === 'LANGUAGE' && (
           <LanguagePicker
@@ -526,6 +506,7 @@ export function App() {
           <SessionPurgeScreen
             createdToken={createdToken}
             onProceed={() => setCurrentStep('PHYSICIAN_CONSOLE')}
+            selectedLanguage={selectedLanguage}
           />
         )}
 

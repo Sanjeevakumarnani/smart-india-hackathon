@@ -1,4 +1,22 @@
-import React, { useState } from 'react';
+/**
+ * @file IdentityScreen.tsx
+ * @description Step 2 — Patient Identification & Registration
+ *
+ * Implements three ABDM v3 authentication paths:
+ *   PATH 1 — ABHA ID or QR Code scan
+ *   PATH 2 — Aadhaar OTP (ABDM two-step state machine)
+ *   PATH 3 — Mobile Number OTP with demographic fallback
+ *
+ * Design principles:
+ *  - No `alert()` calls — all errors surface as inline banners
+ *  - Animated panel transitions using the `motion` package
+ *  - Two-column layout on desktop, single-column on mobile
+ *  - OTP countdown timer with "Resend" action
+ *  - Stage-based mobile flow: phone → OTP → (optional) demographics
+ */
+
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   QrCode,
   Shield,
@@ -9,11 +27,215 @@ import {
   CreditCard,
   Mic,
   MicOff,
+  Phone,
   UserPlus,
-  Send,
+  RefreshCw,
+  AlertCircle,
+  Fingerprint,
+  User,
+  Upload,
+  Loader2,
+  Link2,
+  ExternalLink,
+  Sparkles,
+  X,
+  HeartPulse,
 } from 'lucide-react';
 import { PatientProfile, LanguageCode } from '../types';
 import { speechService } from '../services/speechService';
+import { translate } from '../services/i18n';
+
+// ─────────────────────────────────────────────
+// Constants & helpers
+// ─────────────────────────────────────────────
+
+const OTP_COUNTDOWN_SECONDS = 30;
+
+function formatAbhaNumber(value: string): string {
+  const digits = value.replace(/\D/g, '').slice(0, 14);
+  return digits.replace(
+    /(\d{2})(\d{0,4})(\d{0,4})(\d{0,4})/,
+    (_m, a, b, c, d) => [a, b, c, d].filter(Boolean).join('-')
+  );
+}
+
+/** Maps a raw API patient record to a typed PatientProfile. */
+function toPatientProfile(patient: any, fallback: Partial<PatientProfile> = {}): PatientProfile {
+  return {
+    id: patient.id || fallback.id || `PAT-${Date.now().toString().slice(-6)}`,
+    abhaId: patient.abhaId || patient.abha_id || fallback.abhaId || '',
+    abhaAddress: patient.abhaAddress || patient.abha_address || fallback.abhaAddress || '',
+    aadhaarNumber: patient.aadhaarNumber || patient.aadhaar_number || fallback.aadhaarNumber || '',
+    aadhaarLast4: patient.aadhaarLast4 || patient.aadhaar_last4 || fallback.aadhaarLast4 || '',
+    fullName: patient.fullName || patient.full_name || fallback.fullName || 'Walk-in Patient',
+    age: Number(patient.age ?? fallback.age ?? 30),
+    gender: (patient.gender || fallback.gender || 'Other') as 'Male' | 'Female' | 'Other',
+    phone: patient.phone || fallback.phone || '',
+    city: patient.city || fallback.city || '',
+    state: patient.state || fallback.state || '',
+    bloodGroup: patient.bloodGroup || patient.blood_group || fallback.bloodGroup || '',
+    emergencyContact: fallback.emergencyContact || { name: '', relation: '', phone: '' },
+    medicalHistory: fallback.medicalHistory || [],
+    currentMedications: fallback.currentMedications || [],
+    allergies: fallback.allergies || [],
+  };
+}
+
+// ─────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────
+
+/** Inline dismissable error banner — replaces all alert() calls. */
+const ErrorBanner: React.FC<{ message: string | null; onDismiss?: () => void }> = ({
+  message,
+  onDismiss,
+}) => {
+  if (!message) return null;
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8 }}
+        className="flex items-start gap-3 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 text-sm"
+      >
+        <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-rose-500" />
+        <p className="flex-1 font-medium leading-snug">{message}</p>
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            className="text-rose-400 hover:text-rose-600 font-bold text-xs shrink-0"
+          >
+            ✕
+          </button>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  );
+};
+
+/** Inline success / info message. */
+const InfoBanner: React.FC<{ message: string | null; variant?: 'success' | 'info' }> = ({
+  message,
+  variant = 'info',
+}) => {
+  if (!message) return null;
+  const colours =
+    variant === 'success'
+      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+      : 'bg-indigo-50 border-indigo-200 text-indigo-800';
+  const Icon = variant === 'success' ? CheckCircle2 : Shield;
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`flex items-center gap-2.5 p-3 rounded-2xl border text-sm font-medium ${colours}`}
+    >
+      <Icon className="w-4 h-4 shrink-0" />
+      <span>{message}</span>
+    </motion.div>
+  );
+};
+
+/** OTP countdown timer with resend action. */
+const OtpTimer: React.FC<{ onResend: () => void; isResending: boolean }> = ({
+  onResend,
+  isResending,
+}) => {
+  const [seconds, setSeconds] = useState(OTP_COUNTDOWN_SECONDS);
+
+  useEffect(() => {
+    if (seconds <= 0) return;
+    const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [seconds]);
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-slate-500">
+      {seconds > 0 ? (
+        <span>
+          Resend OTP in{' '}
+          <span className="font-bold text-indigo-600 tabular-nums">{seconds}s</span>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            setSeconds(OTP_COUNTDOWN_SECONDS);
+            onResend();
+          }}
+          disabled={isResending}
+          className="flex items-center gap-1 text-indigo-600 font-bold hover:text-indigo-800 disabled:opacity-50 transition"
+        >
+          <RefreshCw className={`w-3 h-3 ${isResending ? 'animate-spin' : ''}`} />
+          Resend OTP
+        </button>
+      )}
+    </div>
+  );
+};
+
+/** Labelled form field wrapper with optional inline error. */
+const Field: React.FC<{
+  label: string;
+  error?: string | null;
+  required?: boolean;
+  children: React.ReactNode;
+}> = ({ label, error, required, children }) => (
+  <div className="flex flex-col gap-1.5">
+    <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+      {label}
+      {required && <span className="text-rose-500 ml-0.5">*</span>}
+    </label>
+    {children}
+    {error && (
+      <p className="text-xs text-rose-600 font-medium flex items-center gap-1">
+        <AlertCircle className="w-3 h-3" />
+        {error}
+      </p>
+    )}
+  </div>
+);
+
+const inputClass =
+  'w-full px-4 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm ' +
+  'focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 ' +
+  'transition placeholder:text-slate-400 shadow-sm';
+
+const selectClass =
+  'w-full px-4 py-3 rounded-2xl bg-white border border-slate-200 text-slate-900 text-sm ' +
+  'focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition shadow-sm';
+
+// ─────────────────────────────────────────────
+// Tab definitions
+// ─────────────────────────────────────────────
+
+type TabId = 'ABHA' | 'AADHAAR' | 'MOBILE';
+
+const TABS: { id: TabId; label: string; sublabel: string; icon: React.ReactNode }[] = [
+  {
+    id: 'ABHA',
+    label: 'ABHA & QR Scan',
+    sublabel: 'ID number or scan card',
+    icon: <CreditCard className="w-5 h-5" />,
+  },
+  {
+    id: 'AADHAAR',
+    label: 'Aadhaar OTP',
+    sublabel: 'ABDM enrolment',
+    icon: <Fingerprint className="w-5 h-5" />,
+  },
+  {
+    id: 'MOBILE',
+    label: 'Mobile OTP',
+    sublabel: 'PHR login',
+    icon: <Phone className="w-5 h-5" />,
+  },
+];
+
+// ─────────────────────────────────────────────
+// Component props
+// ─────────────────────────────────────────────
 
 interface IdentityScreenProps {
   patientProfile: PatientProfile | null;
@@ -23,6 +245,10 @@ interface IdentityScreenProps {
   selectedLanguage: LanguageCode;
 }
 
+// ─────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────
+
 export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   patientProfile,
   onSelectProfile,
@@ -30,560 +256,1485 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   onBack,
   selectedLanguage,
 }) => {
-  const [activeTab, setActiveTab] = useState<'ABHA_INPUT' | 'QR_SCAN' | 'VOICE_ID'>('ABHA_INPUT');
-  const [abhaInput, setAbhaInput] = useState(patientProfile?.abhaId || '');
-  const [aadhaarInput, setAadhaarInput] = useState(patientProfile?.aadhaarLast4 || '');
+  const [activeTab, setActiveTab] = useState<TabId>('ABHA');
+
+  // ── Shared form state ──────────────────────
+  const [abhaInput, setAbhaInput] = useState(formatAbhaNumber(patientProfile?.abhaId || ''));
+  const [aadhaarInput, setAadhaarInput] = useState(patientProfile?.aadhaarNumber || '');
   const [customName, setCustomName] = useState(patientProfile?.fullName || '');
   const [customAge, setCustomAge] = useState(patientProfile?.age?.toString() || '');
   const [customGender, setCustomGender] = useState<'Male' | 'Female' | 'Other'>(
     patientProfile?.gender || 'Male'
   );
   const [customPhone, setCustomPhone] = useState(patientProfile?.phone || '');
+  const [globalError, setGlobalError] = useState<string | null>(null);
+
+  // ── ABHA Lookup state ──────────────────────
+  const [isAbhaLoading, setIsAbhaLoading] = useState(false);
+  const [abhaWelcomeName, setAbhaWelcomeName] = useState<string | null>(null);
+  const [abhaNotFound, setAbhaNotFound] = useState<boolean>(false);
+  const [searchedAbha, setSearchedAbha] = useState<string>('');
+
+  // ── QR scanner state (only uses camera if clicked) ──
+  const [showCamera, setShowCamera] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [scanSuccess, setScanSuccess] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [isCameraReady, setIsCameraReady] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
 
-  // Walk-in ABHA Creation state
+  // ── Aadhaar OTP state ─────────────────────
+  const [aadhaarOtp, setAadhaarOtp] = useState('');
+  const [aadhaarTxnId, setAadhaarTxnId] = useState('');
+  const [aadhaarOtpSent, setAadhaarOtpSent] = useState(false);
+  const [isAadhaarLoading, setIsAadhaarLoading] = useState(false);
+  const [aadhaarError, setAadhaarError] = useState<string | null>(null);
+  const [aadhaarSuccess, setAadhaarSuccess] = useState<string | null>(null);
+
+  // ── Mobile OTP state — 3 stages ───────────
+  type MobileStage = 'PHONE_INPUT' | 'OTP_VERIFY' | 'DEMOGRAPHICS';
+  const [mobileStage, setMobileStage] = useState<MobileStage>('PHONE_INPUT');
+  const [mobileInput, setMobileInput] = useState('');
+  const [mobileOtp, setMobileOtp] = useState('');
+  const [mobileTxnId, setMobileTxnId] = useState('');
+  const [isMobileLoading, setIsMobileLoading] = useState(false);
+  const [mobileError, setMobileError] = useState<string | null>(null);
+  const [mobileInfo, setMobileInfo] = useState<string | null>(null);
+  // Demographics collected in stage 3 (REGISTRATION_REQUIRED)
+  const [mobileFirstName, setMobileFirstName] = useState('');
+  const [mobileLastName, setMobileLastName] = useState('');
+  const [mobileAge, setMobileAge] = useState('');
+  const [mobileSex, setMobileSex] = useState<'Male' | 'Female' | 'Other'>('Male');
+
+  // ── Voice state ────────────────────────────
+  const [isListeningVoice, setIsListeningVoice] = useState(false);
+  const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
+
+  // ── Universal Quick Registration Modal ─────
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [regFullName, setRegFullName] = useState('');
+  const [regAge, setRegAge] = useState('');
+  const [regGender, setRegGender] = useState<'Male' | 'Female' | 'Other'>('Male');
+  const [regPhone, setRegPhone] = useState('');
+  const [regAbha, setRegAbha] = useState('');
+  const [regAadhaar, setRegAadhaar] = useState('');
+  const [regCity, setRegCity] = useState('');
+  const [regBloodGroup, setRegBloodGroup] = useState('O+');
+  const [isSubmittingReg, setIsSubmittingReg] = useState(false);
+  const [regError, setRegError] = useState<string | null>(null);
+
+  // ── Walk-in ABHA creation ──────────────────
   const [showAbhaCreation, setShowAbhaCreation] = useState(false);
   const [createAadhaar, setCreateAadhaar] = useState('');
-  const [otpSent, setOtpSent] = useState(false);
-  const [enteredOtp, setEnteredOtp] = useState('');
-  const [isGeneratingAbha, setIsGeneratingAbha] = useState(false);
-  const [createdAbhaResult, setCreatedAbhaResult] = useState<any>(null);
+  const [createOtpSent, setCreateOtpSent] = useState(false);
+  const [createOtp, setCreateOtp] = useState('');
+  const [createTxnId, setCreateTxnId] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [createdAbha, setCreatedAbha] = useState<{ abhaId: string; abhaAddress: string } | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  // Voice Biometric state
-  const [isListeningVoice, setIsListeningVoice] = useState(false);
-  const [voiceMatchMessage, setVoiceMatchMessage] = useState<string | null>(null);
+  // ─────────────────────────────────────────────
+  // Core API helper
+  // ─────────────────────────────────────────────
 
-  // Real QR capture & parse from image/camera file
-  const handleQrFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const verifyAndRegisterRequest = async (payload: Record<string, unknown>) => {
+    const response = await fetch('/api/patient/verify-and-register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok && response.status !== 202) {
+      const msg = result.error || 'Patient verification failed';
+      if (response.status === 410) throw new Error('OTP has expired — please request a new one.');
+      if (response.status === 504) throw new Error('Request timed out — please check your connection and retry.');
+      throw new Error(msg);
+    }
+    return result;
+  };
 
+  // ─────────────────────────────────────────────
+  // QR camera helpers
+  // ─────────────────────────────────────────────
+
+  const stopQrCamera = useCallback(() => {
+    cameraStreamRef.current?.getTracks().forEach((t) => t.stop());
+    cameraStreamRef.current = null;
+    setIsCameraReady(false);
+  }, []);
+
+  const startQrCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanError('Camera is not supported — use the photo upload option instead.');
+      return;
+    }
+    stopQrCamera();
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setIsCameraReady(true);
+      setScanError(null);
+    } catch {
+      setScanError('Camera permission denied — use the photo upload option instead.');
+      setShowCamera(false);
+    }
+  }, [stopQrCamera]);
+
+  useEffect(() => {
+    if (showCamera) {
+      void startQrCamera();
+    } else {
+      stopQrCamera();
+    }
+    return stopQrCamera;
+  }, [showCamera, startQrCamera, stopQrCamera]);
+
+  const decodeAndRegister = async (imageBase64: string) => {
     setIsScanning(true);
     setScanError(null);
     setScanSuccess(false);
-
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        try {
-          const base64Data = reader.result as string;
-          const res = await fetch('/api/abdm/qr/decode', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: base64Data }),
-          });
+      const decodeRes = await fetch('/api/abdm/qr/decode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64 }),
+      });
+      const decodeResult = await decodeRes.json().catch(() => ({}));
+      if (!decodeRes.ok) throw new Error(decodeResult.error || 'QR decode failed');
 
-          if (!res.ok) throw new Error('Failed to decode ABHA QR');
+      const scannedProfile = decodeResult.payload || decodeResult;
+      const identifier =
+        scannedProfile.abhaId || scannedProfile.abhaAddress || JSON.stringify(scannedProfile);
 
-          const scannedProfile = await res.json();
-          setAbhaInput(scannedProfile.abhaId || '');
-          setCustomName(scannedProfile.fullName || '');
-          setCustomAge(scannedProfile.age?.toString() || '');
-          setCustomGender(scannedProfile.gender || 'Male');
-          if (scannedProfile.phone) setCustomPhone(scannedProfile.phone);
-          if (scannedProfile.aadhaarLast4) setAadhaarInput(scannedProfile.aadhaarLast4);
-
-          onSelectProfile(scannedProfile);
-          setScanSuccess(true);
-        } catch (err: any) {
-          setScanError(err.message || 'QR Decode failed');
-        } finally {
-          setIsScanning(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch {
-      setScanError('Unable to read selected image file');
+      const verification = await verifyAndRegisterRequest({
+        path: 'abha',
+        action: 'lookup',
+        identifier,
+        demographicPayload: scannedProfile,
+      });
+      if (verification.status === 'REGISTRATION_REQUIRED') {
+        throw new Error('ABHA data verified but demographic details are incomplete. Use the ABHA tab to fill in missing fields.');
+      }
+      const profile = toPatientProfile(verification.patient, scannedProfile);
+      onSelectProfile(profile);
+      setAbhaInput(formatAbhaNumber(profile.abhaId));
+      setCustomName(profile.fullName);
+      setCustomAge(profile.age.toString());
+      setCustomGender(profile.gender as 'Male' | 'Female' | 'Other');
+      if (profile.phone) setCustomPhone(profile.phone);
+      setScanSuccess(true);
+      stopQrCamera();
+    } catch (err: any) {
+      setScanError(err.message || 'QR decode failed');
+    } finally {
       setIsScanning(false);
     }
   };
 
+  const captureQrFrame = async () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d')?.drawImage(video, 0, 0);
+    await decodeAndRegister(canvas.toDataURL('image/jpeg', 0.92));
+  };
+
+  const handleQrFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await decodeAndRegister(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // ─────────────────────────────────────────────
+  // Aadhaar OTP handlers
+  // ─────────────────────────────────────────────
+
   const handleSendAadhaarOtp = async () => {
-    if (!createAadhaar || createAadhaar.length < 4) return;
-    setIsGeneratingAbha(true);
+    const clean = aadhaarInput.replace(/\D/g, '');
+    if (clean.length !== 12) {
+      setAadhaarError('Aadhaar number must be exactly 12 digits.');
+      return;
+    }
+    setIsAadhaarLoading(true);
+    setAadhaarError(null);
     try {
-      const res = await fetch('/api/abdm/otp/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aadhaarLast4: createAadhaar }),
+      const result = await verifyAndRegisterRequest({
+        path: 'aadhaar',
+        action: 'send_otp',
+        identifier: clean,
       });
-      if (!res.ok) throw new Error('Failed to send OTP');
-      await res.json();
-      setOtpSent(true);
+      setAadhaarTxnId(result.txnId || '');
+      setAadhaarOtpSent(true);
+      setAadhaarSuccess('OTP sent to your Aadhaar-linked mobile number.');
     } catch (e: any) {
-      alert(e.message || 'Error sending OTP');
+      setAadhaarError(e.message || 'Failed to send OTP. Please try again.');
     } finally {
-      setIsGeneratingAbha(false);
+      setIsAadhaarLoading(false);
     }
   };
 
-  const handleVerifyOtpAndCreate = async () => {
-    if (enteredOtp.length !== 6) return;
-    setIsGeneratingAbha(true);
+  const handleVerifyAadhaarOtp = async () => {
+    if (aadhaarOtp.length < 4) {
+      setAadhaarError('Please enter the full OTP.');
+      return;
+    }
+    setIsAadhaarLoading(true);
+    setAadhaarError(null);
     try {
-      const res = await fetch('/api/abdm/otp/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ aadhaarLast4: createAadhaar, otp: enteredOtp }),
+      const result = await verifyAndRegisterRequest({
+        path: 'aadhaar',
+        action: 'verify_otp',
+        identifier: aadhaarInput.replace(/\D/g, ''),
+        txnId: aadhaarTxnId,
+        otp: aadhaarOtp,
+        demographics: {
+          fullName: customName || undefined,
+          age: customAge ? Number(customAge) : undefined,
+          gender: customGender,
+          phone: customPhone || undefined,
+        },
       });
-      if (!res.ok) throw new Error('Failed to verify OTP');
-      const data = await res.json();
-      setCreatedAbhaResult({ abhaId: data.abhaId, abhaAddress: data.abhaAddress });
-      setAbhaInput(data.abhaId);
+      if (result.status === 'REGISTRATION_REQUIRED') {
+        throw new Error(`Please provide: ${result.requiredFields?.join(', ')}`);
+      }
+      const profile = toPatientProfile(result.patient, { aadhaarNumber: aadhaarInput });
+      onSelectProfile(profile);
+      setCustomName(profile.fullName);
+      setAbhaInput(formatAbhaNumber(profile.abhaId || ''));
+      setAadhaarSuccess('Aadhaar verified — patient registered successfully!');
+    } catch (e: any) {
+      setAadhaarError(e.message || 'OTP verification failed.');
+    } finally {
+      setIsAadhaarLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // Mobile OTP handlers
+  // ─────────────────────────────────────────────
+
+  const handleSendMobileOtp = async () => {
+    const digits = mobileInput.replace(/\D/g, '').replace(/^91/, '');
+    if (digits.length !== 10) {
+      setMobileError('Please enter a valid 10-digit Indian mobile number.');
+      return;
+    }
+    setIsMobileLoading(true);
+    setMobileError(null);
+    try {
+      const result = await verifyAndRegisterRequest({
+        path: 'mobile',
+        action: 'send_otp',
+        identifier: mobileInput,
+      });
+      setMobileTxnId(result.txnId || '');
+      setMobileStage('OTP_VERIFY');
+      setMobileInfo('OTP sent to your registered mobile number.');
+    } catch (e: any) {
+      setMobileError(e.message || 'Unable to send OTP. Please retry.');
+    } finally {
+      setIsMobileLoading(false);
+    }
+  };
+
+  const handleVerifyMobileOtp = async () => {
+    if (mobileOtp.length < 4) {
+      setMobileError('Please enter the complete OTP.');
+      return;
+    }
+    setIsMobileLoading(true);
+    setMobileError(null);
+    setMobileInfo(null);
+    try {
+      const result = await verifyAndRegisterRequest({
+        path: 'mobile',
+        action: 'verify_otp',
+        identifier: mobileInput,
+        txnId: mobileTxnId,
+        otp: mobileOtp,
+      });
+      if (result.status === 'REGISTRATION_REQUIRED') {
+        // Patient not found — show demographic collection form
+        setMobileStage('DEMOGRAPHICS');
+        setMobileInfo('Mobile verified! Please provide your details to complete registration.');
+        return;
+      }
+      const profile = toPatientProfile(result.patient, { phone: mobileInput });
+      onSelectProfile(profile);
+      setMobileInfo('Patient verified and logged in!');
+      setTimeout(() => onContinue(), 800);
+    } catch (e: any) {
+      setMobileError(e.message || 'Mobile OTP verification failed.');
+    } finally {
+      setIsMobileLoading(false);
+    }
+  };
+
+  const handleMobileRegister = async () => {
+    if (!mobileFirstName.trim()) {
+      setMobileError('First name is required.');
+      return;
+    }
+    if (!mobileAge || Number(mobileAge) <= 0) {
+      setMobileError('Please provide a valid age.');
+      return;
+    }
+    setIsMobileLoading(true);
+    setMobileError(null);
+    try {
+      const result = await verifyAndRegisterRequest({
+        path: 'mobile',
+        action: 'register',
+        identifier: mobileInput,
+        demographics: {
+          firstName: mobileFirstName.trim(),
+          lastName: mobileLastName.trim() || undefined,
+          age: Number(mobileAge),
+          gender: mobileSex,
+          phone: mobileInput,
+        },
+      });
+      const profile = toPatientProfile(result.patient, { phone: mobileInput });
+      onSelectProfile(profile);
+      setMobileInfo('Patient registered successfully!');
+      setTimeout(() => onContinue(), 800);
+    } catch (e: any) {
+      setMobileError(e.message || 'Registration failed. Please retry.');
+    } finally {
+      setIsMobileLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // Walk-in ABHA creation (Aadhaar OTP on-spot)
+  // ─────────────────────────────────────────────
+
+  const handleCreateAbhaSendOtp = async () => {
+    if (createAadhaar.length !== 12) {
+      setCreateError('Aadhaar must be exactly 12 digits.');
+      return;
+    }
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      const result = await verifyAndRegisterRequest({
+        path: 'aadhaar',
+        action: 'send_otp',
+        identifier: createAadhaar,
+      });
+      setCreateTxnId(result.txnId || '');
+      setCreateOtpSent(true);
+    } catch (e: any) {
+      setCreateError(e.message || 'Error sending OTP.');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleCreateAbhaVerifyOtp = async () => {
+    if (createOtp.length < 4) {
+      setCreateError('Please enter the full OTP.');
+      return;
+    }
+    setIsCreating(true);
+    setCreateError(null);
+    try {
+      const result = await verifyAndRegisterRequest({
+        path: 'aadhaar',
+        action: 'verify_otp',
+        identifier: createAadhaar,
+        txnId: createTxnId,
+        otp: createOtp,
+        demographics: {
+          fullName: customName || undefined,
+          age: customAge ? Number(customAge) : undefined,
+          gender: customGender,
+          phone: customPhone || undefined,
+        },
+      });
+      if (result.status === 'REGISTRATION_REQUIRED') {
+        throw new Error(`Please fill in: ${result.requiredFields?.join(', ')}`);
+      }
+      const profile = toPatientProfile(result.patient, { aadhaarNumber: createAadhaar });
+      onSelectProfile(profile);
+      setCreatedAbha({ abhaId: profile.abhaId, abhaAddress: profile.abhaAddress || '' });
+      setAbhaInput(formatAbhaNumber(profile.abhaId));
       setAadhaarInput(createAadhaar);
+      setCustomName(profile.fullName);
     } catch (e: any) {
-      alert(e.message || 'Error verifying OTP');
+      setCreateError(e.message || 'OTP verification failed.');
     } finally {
-      setIsGeneratingAbha(false);
+      setIsCreating(false);
     }
   };
 
-  // Real voice search for returning patients stored in local storage
-  const handleVoiceBiometricLogin = () => {
+  // ─────────────────────────────────────────────
+  // Voice biometric (spoken name → transcript)
+  // ─────────────────────────────────────────────
+
+  const handleVoiceId = () => {
     setIsListeningVoice(true);
-    setVoiceMatchMessage('Listening for your spoken name... Please speak clearly.');
+    setVoiceMessage(translate('voiceListening', selectedLanguage));
     const recognition = speechService.createRecognition(
       selectedLanguage,
       (transcript, isFinal) => {
         if (isFinal) {
           setIsListeningVoice(false);
-          const cleanName = transcript.trim();
-          setCustomName(cleanName);
-          setVoiceMatchMessage(`Identified voice: "${cleanName}". Enter age & details to proceed.`);
+          setCustomName(transcript.trim());
+          setVoiceMessage(`Identified: "${transcript.trim()}" — fill in age and other fields, then proceed.`);
         }
-      },
-      (_err) => {
-        setIsListeningVoice(false);
-        setVoiceMatchMessage('Voice recognition encountered an error. Please enter name manually.');
       },
       () => {
         setIsListeningVoice(false);
-      }
+        setVoiceMessage(translate('voiceError', selectedLanguage));
+      },
+      () => setIsListeningVoice(false)
     );
-
     if (!recognition.isSupported) {
       setIsListeningVoice(false);
-      setVoiceMatchMessage('Microphone speech recognition not supported in this browser. Please type your name.');
+      setVoiceMessage(translate('voiceError', selectedLanguage));
       return;
     }
-
     recognition.start();
   };
 
-  const handleCustomSubmit = () => {
-    const ageVal = parseInt(customAge, 10);
-    const validName = customName.trim() || 'Walk-in Patient';
+  // ─────────────────────────────────────────────
+  // ABHA ID Lookup & Verification
+  // ─────────────────────────────────────────────
 
-    if (customPhone && !/^\d{10}$/.test(customPhone.replace(/\D/g, ''))) {
-      alert('Phone number must be 10 digits');
-      return;
-    }
-    if (aadhaarInput && !/^\d{4}$/.test(aadhaarInput)) {
-      alert('Aadhaar must be exactly 4 digits');
+  const handleAbhaLookup = async () => {
+    const rawAbha = abhaInput.trim();
+    if (!rawAbha) {
+      setGlobalError('Please enter a valid 14-digit ABHA Number or ABHA Address (e.g. name@abdm).');
       return;
     }
 
-    const newProfile: PatientProfile = {
-      id: `PAT-${Date.now().toString().slice(-6)}`,
-      abhaId: abhaInput,
-      aadhaarLast4: aadhaarInput,
-      fullName: validName,
-      age: isNaN(ageVal) || ageVal <= 0 ? 30 : ageVal,
-      gender: customGender,
-      phone: customPhone,
-      city: '',
-      state: '',
-      bloodGroup: '',
-      emergencyContact: {
-        name: '',
-        relation: '',
-        phone: '',
-      },
-      medicalHistory: [],
-      currentMedications: [],
-      allergies: [],
+    const digitsOnly = rawAbha.replace(/\D/g, '');
+    const isAbhaNumber = digitsOnly.length === 14;
+    const isAbhaAddress = rawAbha.includes('@');
+
+    if (!isAbhaNumber && !isAbhaAddress) {
+      setGlobalError('ABHA number must be 14 digits (XX-XXXX-XXXX-XXXX) or an ABHA address (name@abdm).');
+      return;
+    }
+
+    setGlobalError(null);
+    setIsAbhaLoading(true);
+    setAbhaNotFound(false);
+    setAbhaWelcomeName(null);
+    setSearchedAbha(rawAbha);
+
+    try {
+      const result = await verifyAndRegisterRequest({
+        path: 'abha',
+        action: 'lookup',
+        identifier: rawAbha,
+      });
+
+      if (result.status === 'VERIFIED' && result.patient) {
+        const profile = toPatientProfile(result.patient);
+        onSelectProfile(profile);
+        setAbhaWelcomeName(profile.fullName);
+        setAbhaNotFound(false);
+      } else if (result.status === 'NOT_FOUND' || result.status === 'REGISTRATION_REQUIRED') {
+        // Not present in local database
+        setAbhaNotFound(true);
+        setAbhaWelcomeName(null);
+      } else {
+        setAbhaNotFound(true);
+        setAbhaWelcomeName(null);
+      }
+    } catch (error: any) {
+      // If server returned 404/not found or similar, display the not-found fallback
+      if (error?.message?.toLowerCase().includes('not found') || error?.message?.toLowerCase().includes('no patient')) {
+        setAbhaNotFound(true);
+        setAbhaWelcomeName(null);
+      } else {
+        setGlobalError(error.message || 'Error verifying ABHA number.');
+      }
+    } finally {
+      setIsAbhaLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // Universal Quick Registration Handler
+  // ─────────────────────────────────────────────
+
+  const openRegisterModalWithIdentifier = (suggestedIdentifier?: string) => {
+    const raw = (suggestedIdentifier || searchedAbha || abhaInput || aadhaarInput || mobileInput || '').trim();
+    const cleanDigits = raw.replace(/\D/g, '');
+
+    if (cleanDigits.length === 14 || raw.includes('@')) {
+      setRegAbha(raw);
+    } else if (cleanDigits.length === 12) {
+      setRegAadhaar(cleanDigits);
+    } else if (cleanDigits.length === 10) {
+      setRegPhone(cleanDigits);
+    }
+
+    setRegError(null);
+    setShowRegisterModal(true);
+  };
+
+  const handleQuickRegisterSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!regFullName.trim()) {
+      setRegError('Full Name is required.');
+      return;
+    }
+    const ageNum = parseInt(regAge, 10);
+    if (isNaN(ageNum) || ageNum <= 0 || ageNum > 125) {
+      setRegError('Please enter a valid age between 1 and 125.');
+      return;
+    }
+
+    setIsSubmittingReg(true);
+    setRegError(null);
+
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const newId = `PAT-${Date.now().toString(36).toUpperCase().slice(-4)}${randomSuffix}`;
+
+    const cleanPhone = regPhone.replace(/\D/g, '').slice(-10);
+    const formattedPhone = cleanPhone ? `+91${cleanPhone}` : '';
+    const cleanAadhaar = regAadhaar.replace(/\D/g, '').slice(0, 12);
+    const cleanAbha = regAbha.trim();
+
+    const payload = {
+      id: newId,
+      fullName: regFullName.trim(),
+      age: ageNum,
+      gender: regGender,
+      phone: formattedPhone,
+      abhaId: cleanAbha || undefined,
+      aadhaarNumber: cleanAadhaar || undefined,
+      aadhaarLast4: cleanAadhaar ? cleanAadhaar.slice(-4) : undefined,
+      city: regCity.trim(),
+      bloodGroup: regBloodGroup,
     };
 
-    // Persist to MySQL patients table
-    fetch('/api/patients', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newProfile),
-    }).catch((err) => {
-      console.warn('Patient save non-blocking warning:', err);
-    });
+    try {
+      const res = await fetch('/api/patients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to save patient in database.');
+      }
 
-    onSelectProfile(newProfile);
-    onContinue();
+      const createdRecord = data.patient || payload;
+      const profile = toPatientProfile(createdRecord);
+      onSelectProfile(profile);
+
+      // Sync local field displays
+      setCustomName(profile.fullName);
+      setCustomAge(String(profile.age));
+      setCustomGender(profile.gender as 'Male' | 'Female' | 'Other');
+      if (profile.phone) setCustomPhone(profile.phone);
+      if (profile.abhaId) setAbhaInput(formatAbhaNumber(profile.abhaId));
+
+      setAbhaWelcomeName(profile.fullName);
+      setAbhaNotFound(false);
+      setShowRegisterModal(false);
+    } catch (err: any) {
+      setRegError(err.message || 'Error registering patient.');
+    } finally {
+      setIsSubmittingReg(false);
+    }
   };
+
+  const handleAbhaSubmit = async () => {
+    if (patientProfile) {
+      onContinue();
+    } else {
+      await handleAbhaLookup();
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6">
-      {/* Title Header */}
-      <div className="text-center mb-6">
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
-          <Shield className="w-4 h-4 text-indigo-600" />
-          <span>Step 2: Patient Identification / रोगी पहचान</span>
+
+      {/* ── Header ──────────────────────────── */}
+      <div className="text-center mb-8">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[11px] font-mono font-bold uppercase tracking-widest mb-3">
+          <Shield className="w-3.5 h-3.5" />
+          Step 2 — Patient Identification
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          ABHA Card & Aadhaar Verification
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+          Verify & Register Patient
         </h2>
-        <p className="text-slate-600 text-sm sm:text-base mt-1">
-          अपना आयुष्मान भारत हेल्थ अकाउंट (ABHA), क्यूआर कोड स्कैन या वॉक-इन पंजीकरण चुनें
+        <p className="text-slate-500 text-sm mt-1.5 max-w-lg mx-auto">
+          Choose how this patient will identify themselves. Their profile will be securely linked to the ABDM health stack.
         </p>
       </div>
 
-      {/* Tabs Switcher */}
-      <div className="flex justify-center mb-6 overflow-x-auto py-1">
-        <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-200 flex gap-1.5 shadow-sm">
-          <button
-            id="tab-manual-entry-btn"
-            onClick={() => setActiveTab('ABHA_INPUT')}
-            className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
-              activeTab === 'ABHA_INPUT'
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-            }`}
-          >
-            <CreditCard className="w-4 h-4" />
-            <span>Manual ABHA & Walk-in Registration</span>
-          </button>
-
-          <button
-            id="tab-qr-scan-btn"
-            onClick={() => setActiveTab('QR_SCAN')}
-            className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
-              activeTab === 'QR_SCAN'
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-            }`}
-          >
-            <QrCode className="w-4 h-4" />
-            <span>Scan ABHA Card QR</span>
-          </button>
-
-          <button
-            id="tab-voice-id-btn"
-            onClick={() => setActiveTab('VOICE_ID')}
-            className={`px-5 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ${
-              activeTab === 'VOICE_ID'
-                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black shadow-sm'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white'
-            }`}
-          >
-            <Mic className="w-4 h-4" />
-            <span>Voice Spoken Name</span>
-          </button>
+      {/* ── Tab navigation ──────────────────── */}
+      <div className="mb-6 overflow-x-auto">
+        <div className="flex gap-2 bg-slate-100 p-1.5 rounded-2xl w-max mx-auto border border-slate-200 shadow-sm">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                  isActive
+                    ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-white'
+                }`}
+              >
+                <span className={isActive ? 'text-white' : 'text-slate-400'}>{tab.icon}</span>
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Tab 1: Manual Entry & Walk-in On-Spot ABHA Creation */}
-      {activeTab === 'ABHA_INPUT' && (
-        <div className="stitch-card p-6 mb-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                14-Digit ABHA Health Number (Optional if creating new)
-              </label>
-              <input
-                type="text"
-                value={abhaInput}
-                onChange={(e) => setAbhaInput(e.target.value)}
-                placeholder="e.g. 91-1234-5678-9012"
-                className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 font-mono text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
-              />
-            </div>
+      {/* ── Tab panels ──────────────────────── */}
+      <AnimatePresence mode="wait">
 
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Aadhaar Number (Last 4 Digits)
-              </label>
-              <input
-                type="text"
-                maxLength={4}
-                value={aadhaarInput}
-                onChange={(e) => setAadhaarInput(e.target.value)}
-                placeholder="e.g. 4392"
-                className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 font-mono text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Full Name / पूरा नाम <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Enter patient full legal name"
-                className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Age (आयु) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  max={120}
-                  value={customAge}
-                  onChange={(e) => setCustomAge(e.target.value)}
-                  placeholder="e.g. 42"
-                  className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
-                />
+        {/* ════════════════════════════════════════
+            PATH 1: ABHA (Health ID Verification)
+            ════════════════════════════════════════ */}
+        {activeTab === 'ABHA' && (
+          <motion.div
+            key="ABHA"
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.2 }}
+            className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden"
+          >
+            {/* Panel header */}
+            <div className="px-6 pt-5 pb-4 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-2xl bg-indigo-50 flex items-center justify-center">
+                <CreditCard className="w-5 h-5 text-indigo-600" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Gender (लिंग)
-                </label>
-                <select
-                  value={customGender}
-                  onChange={(e) => setCustomGender(e.target.value as any)}
-                  className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
+                <p className="text-sm font-black text-slate-900">ABHA Health ID</p>
+                <p className="text-xs text-slate-400 mt-0.5">Enter 14-digit ABHA Card Number or ABHA Address (e.g. name@abdm)</p>
+              </div>
+            </div>
+
+            <div className="p-6 max-w-xl mx-auto space-y-5">
+              <ErrorBanner message={globalError} onDismiss={() => setGlobalError(null)} />
+
+              {/* ── State 1: Patient Found & Welcome Banner ── */}
+              {abhaWelcomeName && patientProfile && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="p-5 rounded-3xl bg-gradient-to-br from-emerald-500/10 via-emerald-50 to-teal-50 border-2 border-emerald-500/30 text-emerald-950 shadow-sm space-y-3"
                 >
-                  <option value="Male">Male (पुरुष)</option>
-                  <option value="Female">Female (महिला)</option>
-                  <option value="Other">Other (अन्य)</option>
-                </select>
+                  <div className="flex items-start gap-3.5">
+                    <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-black shadow-md shadow-emerald-500/25 shrink-0">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-emerald-900">
+                        Hello {abhaWelcomeName}!
+                      </h3>
+                      <p className="text-sm font-medium text-emerald-800 mt-0.5">
+                        Welcome, you are set to go with <span className="font-bold tracking-tight">medikiosk+</span>
+                      </p>
+                      <p className="text-xs text-emerald-700 font-mono mt-1">
+                        ABHA: {patientProfile.abhaId || abhaInput} • Patient ID: {patientProfile.id}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-emerald-200/60 flex items-center justify-between">
+                    <span className="text-xs text-emerald-700 font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      Verified against ABHA Health Stack
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onContinue}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black hover:bg-emerald-700 transition flex items-center gap-1.5 shadow-sm shadow-emerald-600/20"
+                    >
+                      Proceed to Vitals
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* ── State 2: Standard ABHA Input ── */}
+              <div className="space-y-4">
+                <Field label="ABHA Card Number or Address" required>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={abhaInput}
+                      onChange={(e) => {
+                        setAbhaInput(formatAbhaNumber(e.target.value));
+                        if (abhaNotFound) setAbhaNotFound(false);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void handleAbhaLookup();
+                        }
+                      }}
+                      placeholder="e.g. 91-1234-5678-9012 or yourname@abdm"
+                      className={inputClass + ' font-mono text-base pr-28'}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAbhaLookup}
+                      disabled={isAbhaLoading || !abhaInput.trim()}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold disabled:opacity-50 transition flex items-center gap-1.5 shadow-sm"
+                    >
+                      {isAbhaLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                      Verify
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Enter your 14-digit ABHA ID or your ABHA address linked to the Ayushman Bharat Digital Mission.
+                  </p>
+                </Field>
+              </div>
+
+              {/* ── State 3: Not Found in ABHA Database ── */}
+              <AnimatePresence>
+                {abhaNotFound && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    className="p-5 rounded-3xl bg-amber-50/80 border-2 border-amber-300 text-slate-900 shadow-sm space-y-4"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-2xl bg-amber-500/20 text-amber-800 flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-5 h-5 text-amber-700" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-black text-amber-950">
+                          No details found for this ABHA number
+                        </h4>
+                        <p className="text-xs text-amber-800 mt-0.5">
+                          The identifier <span className="font-mono font-bold">{searchedAbha || abhaInput}</span> was not found in our database or the ABDM registry.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-amber-200/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                      {/* Direct Create Account Button */}
+                      <button
+                        type="button"
+                        onClick={() => openRegisterModalWithIdentifier(searchedAbha || abhaInput)}
+                        className="flex-1 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition text-center"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        <span>Account Not Found — Create It Now</span>
+                      </button>
+
+                      {/* Redirect Link to official ABHA Creation */}
+                      <a
+                        href={`https://healthid.abdm.gov.in/register?redirect_url=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition text-center whitespace-nowrap"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        <span>ABDM Portal Link</span>
+                      </a>
+
+                      {/* Mobile Alternative Option */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('MOBILE');
+                          setGlobalError(null);
+                        }}
+                        className="px-4 py-3 rounded-2xl bg-white hover:bg-slate-50 text-indigo-700 border-2 border-indigo-200 font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition whitespace-nowrap"
+                      >
+                        <Phone className="w-4 h-4 text-indigo-600" />
+                        <span>Use Mobile OTP</span>
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+
+              {/* ── Integrated QR Scanner Section (Only uses camera on click) ── */}
+              <div className="pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <QrCode className="w-4 h-4 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-700">Or Scan ABHA Card QR Code</span>
+                  </div>
+                  {!showCamera ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCamera(true);
+                        setScanError(null);
+                        setScanSuccess(false);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-1.5 transition shadow-2xs"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>Open Camera Scanner</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCamera(false);
+                        stopQrCamera();
+                      }}
+                      className="px-3 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition"
+                    >
+                      Close Camera
+                    </button>
+                  )}
+                </div>
+
+                <ErrorBanner message={scanError} onDismiss={() => setScanError(null)} />
+
+                {/* Camera Viewport — only mounted/active when user clicks Open Camera Scanner */}
+                <AnimatePresence>
+                  {showCamera && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="mt-3 p-4 rounded-3xl bg-slate-50 border border-indigo-100 flex flex-col items-center gap-3 overflow-hidden"
+                    >
+                      {isScanning ? (
+                        <div className="flex flex-col items-center gap-2 py-6">
+                          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+                          <p className="text-xs font-bold text-slate-700">Decoding QR Code...</p>
+                        </div>
+                      ) : scanSuccess ? (
+                        <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs py-3">
+                          <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                          <span>QR Scanned & Verified!</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="w-full max-w-sm aspect-[4/3] rounded-2xl overflow-hidden bg-slate-900 border-2 border-indigo-200 shadow-inner relative">
+                            <video ref={videoRef} muted playsInline className="w-full h-full object-cover" />
+                            {!isCameraReady && (
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-400">
+                                <Camera className="w-8 h-8 animate-pulse" />
+                                <p className="text-xs font-semibold">Starting camera...</p>
+                              </div>
+                            )}
+                            <div className="absolute inset-[15%] border-2 border-emerald-400/80 rounded-xl pointer-events-none" />
+                          </div>
+
+                          <div className="flex flex-wrap items-center justify-center gap-2 w-full">
+                            <button
+                              type="button"
+                              onClick={captureQrFrame}
+                              disabled={!isCameraReady || isScanning}
+                              className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50 transition flex items-center gap-1.5 shadow-sm"
+                            >
+                              <Camera className="w-3.5 h-3.5" />
+                              <span>Capture & Scan</span>
+                            </button>
+
+                            <label className="px-4 py-2 rounded-xl bg-white text-slate-700 text-xs font-bold border border-slate-200 hover:bg-slate-50 cursor-pointer transition flex items-center gap-1.5 shadow-2xs">
+                              <Upload className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Upload Photo</span>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                onChange={handleQrFileUpload}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+        {/* ════════════════════════════════════════
+            PATH 2: Aadhaar OTP
+            ════════════════════════════════════════ */}
+        {activeTab === 'AADHAAR' && (
+          <motion.div
+            key="AADHAAR"
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.2 }}
+            className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden"
+          >
+            <div className="px-6 pt-5 pb-4 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-2xl bg-amber-50 flex items-center justify-center">
+                <Fingerprint className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-slate-900">Aadhaar OTP Verification</p>
+                <p className="text-xs text-slate-400 mt-0.5">ABDM enrolment via POST /v3/enrollment/enrol/byAadhaar</p>
               </div>
             </div>
 
-            <div className="sm:col-span-2">
-              <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Mobile Number (for SMS token & prescription sync)
-              </label>
-              <input
-                type="tel"
-                value={customPhone}
-                onChange={(e) => setCustomPhone(e.target.value)}
-                placeholder="+91 98765 43210"
-                className="w-full px-4 py-3 rounded-xl bg-white border border-slate-200 text-slate-900 font-mono text-base focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
-              />
-            </div>
-          </div>
+            <div className="p-6 max-w-md space-y-4">
+              <ErrorBanner message={aadhaarError} onDismiss={() => setAadhaarError(null)} />
+              <InfoBanner message={aadhaarSuccess} variant="success" />
 
-          {/* On-Spot Walk-in ABHA Generation Flow */}
-          <div className="mt-6 pt-5 border-t border-slate-200">
-            {!showAbhaCreation ? (
-              <button
-                type="button"
-                onClick={() => setShowAbhaCreation(true)}
-                className="px-4 py-2.5 rounded-xl bg-violet-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold flex items-center gap-2 transition"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>Don't have an ABHA ID? Create On-Spot ABHA (Aadhaar OTP)</span>
-              </button>
-            ) : (
-              <div className="p-4 rounded-2xl bg-slate-50 border border-indigo-200">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-xs font-bold text-indigo-800 flex items-center gap-1.5">
-                    <UserPlus className="w-4 h-4" />
-                    <span>Instant ABHA Account Creation (ABDM Gateway)</span>
-                  </h4>
+              {/* Step indicator */}
+              <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${!aadhaarOtpSent ? 'bg-indigo-600 text-white' : 'bg-emerald-500 text-white'}`}>
+                  {!aadhaarOtpSent ? '1' : '✓'}
+                </span>
+                <span className={!aadhaarOtpSent ? 'text-indigo-700' : 'text-slate-400'}>Enter Aadhaar</span>
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${aadhaarOtpSent ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                  2
+                </span>
+                <span className={aadhaarOtpSent ? 'text-indigo-700' : 'text-slate-400'}>Verify OTP</span>
+              </div>
+
+              <Field label="12-Digit Aadhaar Number" required>
+                <input
+                  type="text"
+                  maxLength={12}
+                  value={aadhaarInput}
+                  onChange={(e) => setAadhaarInput(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                  placeholder="XXXX XXXX XXXX"
+                  disabled={aadhaarOtpSent}
+                  className={inputClass + ' font-mono tracking-[0.3em]'}
+                />
+              </Field>
+
+              {!aadhaarOtpSent ? (
+                <button
+                  type="button"
+                  onClick={handleSendAadhaarOtp}
+                  disabled={isAadhaarLoading || aadhaarInput.length !== 12}
+                  className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold text-sm hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 transition"
+                >
+                  {isAadhaarLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  Request Aadhaar OTP
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <Field label="6-Digit OTP" required>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={aadhaarOtp}
+                      onChange={(e) => setAadhaarOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="● ● ● ● ● ●"
+                      className={inputClass + ' font-mono tracking-[0.5em] text-center text-lg'}
+                    />
+                  </Field>
+
+                  <OtpTimer
+                    onResend={() => {
+                      setAadhaarOtpSent(false);
+                      setAadhaarOtp('');
+                      void handleSendAadhaarOtp();
+                    }}
+                    isResending={isAadhaarLoading}
+                  />
+
                   <button
                     type="button"
-                    onClick={() => setShowAbhaCreation(false)}
-                    className="text-xs text-slate-500 hover:text-slate-700"
+                    onClick={handleVerifyAadhaarOtp}
+                    disabled={isAadhaarLoading || aadhaarOtp.length < 4}
+                    className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition"
+                  >
+                    {isAadhaarLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Verify OTP & Register
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ════════════════════════════════════════
+            PATH 3: Mobile OTP — 3-stage flow
+            ════════════════════════════════════════ */}
+        {activeTab === 'MOBILE' && (
+          <motion.div
+            key="MOBILE"
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -16 }}
+            transition={{ duration: 0.2 }}
+            className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden"
+          >
+            <div className="px-6 pt-5 pb-4 border-b border-slate-100 flex items-center gap-3">
+              <div className="w-9 h-9 rounded-2xl bg-emerald-50 flex items-center justify-center">
+                <Phone className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-black text-slate-900">Mobile Number Login</p>
+                <p className="text-xs text-slate-400 mt-0.5">ABDM PHR — /v3/phr/login/init + /v3/phr/login/verify/otp</p>
+              </div>
+            </div>
+
+            <div className="p-6 max-w-md space-y-4">
+              <ErrorBanner message={mobileError} onDismiss={() => setMobileError(null)} />
+              <InfoBanner message={mobileInfo} variant={mobileInfo?.includes('registered') || mobileInfo?.includes('verified') ? 'success' : 'info'} />
+
+              {/* Stage indicator */}
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
+                {(['PHONE_INPUT', 'OTP_VERIFY', 'DEMOGRAPHICS'] as MobileStage[]).map((stage, idx) => {
+                  const done = (mobileStage === 'OTP_VERIFY' && idx === 0) ||
+                               (mobileStage === 'DEMOGRAPHICS' && idx <= 1);
+                  const active = mobileStage === stage;
+                  return (
+                    <React.Fragment key={stage}>
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] ${done ? 'bg-emerald-500 text-white' : active ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
+                        {done ? '✓' : idx + 1}
+                      </span>
+                      <span className={active ? 'text-indigo-700' : done ? 'text-emerald-600' : ''}>
+                        {stage === 'PHONE_INPUT' ? 'Phone' : stage === 'OTP_VERIFY' ? 'OTP' : 'Details'}
+                      </span>
+                      {idx < 2 && <div className="h-px flex-1 bg-slate-200" />}
+                    </React.Fragment>
+                  );
+                })}
+              </div>
+
+              {/* Stage 1: Phone input */}
+              <AnimatePresence mode="wait">
+                {mobileStage === 'PHONE_INPUT' && (
+                  <motion.div
+                    key="phone"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="space-y-4"
+                  >
+                    <Field label="Mobile Number" required>
+                      <input
+                        type="tel"
+                        value={mobileInput}
+                        onChange={(e) => setMobileInput(e.target.value)}
+                        placeholder="+91 98765 43210"
+                        className={inputClass + ' font-mono'}
+                      />
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={handleSendMobileOtp}
+                      disabled={isMobileLoading || !mobileInput.trim()}
+                      className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition"
+                    >
+                      {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                      Send OTP
+                    </button>
+                  </motion.div>
+                )}
+
+                {/* Stage 2: OTP verification */}
+                {mobileStage === 'OTP_VERIFY' && (
+                  <motion.div
+                    key="otp"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="space-y-4"
+                  >
+                    <p className="text-xs text-slate-500 font-medium">
+                      OTP sent to <span className="font-bold text-slate-700">{mobileInput}</span>
+                    </p>
+                    <Field label="Enter OTP" required>
+                      <input
+                        type="text"
+                        maxLength={8}
+                        value={mobileOtp}
+                        onChange={(e) => setMobileOtp(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                        placeholder="● ● ● ● ● ●"
+                        className={inputClass + ' font-mono tracking-[0.5em] text-center text-lg'}
+                      />
+                    </Field>
+
+                    <OtpTimer
+                      onResend={() => {
+                        setMobileStage('PHONE_INPUT');
+                        setMobileOtp('');
+                        setMobileInfo(null);
+                      }}
+                      isResending={isMobileLoading}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={handleVerifyMobileOtp}
+                      disabled={isMobileLoading || mobileOtp.length < 4}
+                      className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-indigo-500/20 transition"
+                    >
+                      {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      Verify & Continue
+                    </button>
+                  </motion.div>
+                )}
+
+                {/* Stage 3: Demographic collection (REGISTRATION_REQUIRED fallback) */}
+                {mobileStage === 'DEMOGRAPHICS' && (
+                  <motion.div
+                    key="demographics"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="space-y-4"
+                  >
+                    <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2.5">
+                      <User className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <p className="text-xs text-amber-800 font-medium">
+                        Mobile verified! This number has no linked ABHA record. Please fill in your details to complete registration.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="First Name" required>
+                        <input
+                          type="text"
+                          value={mobileFirstName}
+                          onChange={(e) => setMobileFirstName(e.target.value)}
+                          placeholder="First"
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Last Name">
+                        <input
+                          type="text"
+                          value={mobileLastName}
+                          onChange={(e) => setMobileLastName(e.target.value)}
+                          placeholder="Last"
+                          className={inputClass}
+                        />
+                      </Field>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Age" required>
+                        <input
+                          type="number"
+                          min={1}
+                          max={120}
+                          value={mobileAge}
+                          onChange={(e) => setMobileAge(e.target.value)}
+                          placeholder="e.g. 35"
+                          className={inputClass}
+                        />
+                      </Field>
+                      <Field label="Sex" required>
+                        <select
+                          value={mobileSex}
+                          onChange={(e) => setMobileSex(e.target.value as any)}
+                          className={selectClass}
+                        >
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Other">Other</option>
+                        </select>
+                      </Field>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleMobileRegister}
+                      disabled={isMobileLoading || !mobileFirstName.trim() || !mobileAge}
+                      className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-indigo-500/20 transition"
+                    >
+                      {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                      Register & Continue
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+
+      </AnimatePresence>
+
+      {/* ── Global "Create New Account for All" Option Bar ── */}
+      <div className="mt-5 p-4 rounded-3xl bg-gradient-to-r from-violet-50 via-indigo-50/70 to-slate-50 border-2 border-dashed border-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+            <UserPlus className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-sm font-black text-slate-900">
+              Direct Intake: Don't have an ABHA or Government ID yet?
+            </h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Instant walk-in registration. We'll generate a unique hospital Patient ID and store all your records.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => openRegisterModalWithIdentifier()}
+          className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 transition whitespace-nowrap active:scale-95"
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>Create New Account</span>
+        </button>
+      </div>
+
+      {/* ── Universal Quick Registration Modal ── */}
+      <AnimatePresence>
+        {showRegisterModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50/60 to-white">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-sm">
+                    <HeartPulse className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-slate-900">Patient Registration</h3>
+                    <p className="text-xs text-slate-500">Auto-assigns unique Patient ID & saves in database</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRegisterModal(false)}
+                  className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Modal Form Content */}
+              <form onSubmit={handleQuickRegisterSubmit} className="p-6 overflow-y-auto space-y-4">
+                <ErrorBanner message={regError} onDismiss={() => setRegError(null)} />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="sm:col-span-2">
+                    <Field label="Full Name" required>
+                      <input
+                        type="text"
+                        required
+                        value={regFullName}
+                        onChange={(e) => setRegFullName(e.target.value)}
+                        placeholder="Patient's legal full name"
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
+
+                  <div>
+                    <Field label="Age" required>
+                      <input
+                        type="number"
+                        required
+                        min={1}
+                        max={120}
+                        value={regAge}
+                        onChange={(e) => setRegAge(e.target.value)}
+                        placeholder="e.g. 45"
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
+
+                  <div>
+                    <Field label="Gender" required>
+                      <select
+                        value={regGender}
+                        onChange={(e) => setRegGender(e.target.value as any)}
+                        className={selectClass}
+                      >
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </Field>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <Field label="Mobile Number">
+                      <input
+                        type="tel"
+                        value={regPhone}
+                        onChange={(e) => setRegPhone(e.target.value)}
+                        placeholder="10-digit mobile number"
+                        className={inputClass + ' font-mono'}
+                      />
+                    </Field>
+                  </div>
+
+                  <div>
+                    <Field label="Blood Group">
+                      <select
+                        value={regBloodGroup}
+                        onChange={(e) => setRegBloodGroup(e.target.value)}
+                        className={selectClass}
+                      >
+                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
+                          <option key={bg} value={bg}>{bg}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+
+                  <div>
+                    <Field label="City / Town">
+                      <input
+                        type="text"
+                        value={regCity}
+                        onChange={(e) => setRegCity(e.target.value)}
+                        placeholder="e.g. Delhi"
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
+
+                  <div>
+                    <Field label="ABHA Health ID (Optional)">
+                      <input
+                        type="text"
+                        value={regAbha}
+                        onChange={(e) => setRegAbha(e.target.value)}
+                        placeholder="XX-XXXX-XXXX-XXXX"
+                        className={inputClass + ' font-mono text-xs'}
+                      />
+                    </Field>
+                  </div>
+
+                  <div>
+                    <Field label="Aadhaar (Optional)">
+                      <input
+                        type="text"
+                        maxLength={12}
+                        value={regAadhaar}
+                        onChange={(e) => setRegAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                        placeholder="12-digit Aadhaar"
+                        className={inputClass + ' font-mono text-xs'}
+                      />
+                    </Field>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowRegisterModal(false)}
+                    className="px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
                   >
                     Cancel
                   </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingReg}
+                    className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-indigo-600/20 transition disabled:opacity-50"
+                  >
+                    {isSubmittingReg ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Save & Generate Patient ID
+                  </button>
                 </div>
-
-                {!createdAbhaResult ? (
-                  <div className="space-y-3 text-xs">
-                    {!otpSent ? (
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          maxLength={4}
-                          value={createAadhaar}
-                          onChange={(e) => setCreateAadhaar(e.target.value)}
-                          placeholder="Last 4 digits of Aadhaar"
-                          className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-900 font-mono"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSendAadhaarOtp}
-                          disabled={isGeneratingAbha || createAadhaar.length < 4}
-                          className="px-4 py-2 rounded-xl bg-indigo-600 text-white font-bold hover:bg-indigo-700 disabled:opacity-50 transition flex items-center gap-1.5"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>{isGeneratingAbha ? 'Sending...' : 'Send Aadhaar OTP'}</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2 items-center">
-                        <input
-                          type="text"
-                          maxLength={6}
-                          value={enteredOtp}
-                          onChange={(e) => setEnteredOtp(e.target.value)}
-                          placeholder="Enter 6-digit OTP (e.g. 123456)"
-                          className="flex-1 px-3 py-2 rounded-xl bg-white border border-indigo-400 text-slate-900 font-mono tracking-widest text-center"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleVerifyOtpAndCreate}
-                          disabled={isGeneratingAbha || enteredOtp.length !== 6}
-                          className="px-4 py-2 rounded-xl bg-emerald-400 text-slate-950 font-bold hover:bg-emerald-300 disabled:opacity-50 transition"
-                        >
-                          {isGeneratingAbha ? 'Creating...' : 'Verify & Create'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 text-xs">
-                    <p className="font-bold flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      <span>ABHA Created Successfully!</span>
-                    </p>
-                    <p className="font-mono text-sm text-white mt-1">ID: {createdAbhaResult.abhaId}</p>
-                    <p className="text-[10px] text-slate-400">Address: {createdAbhaResult.abhaAddress} • Linked to National Health Stack</p>
-                  </div>
-                )}
-              </div>
-            )}
+              </form>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
-      {/* Tab 2: Real QR Scanner Upload / Camera */}
-      {activeTab === 'QR_SCAN' && (
-        <div className="stitch-card p-6 mb-6 flex flex-col items-center">
-          <div className="w-full max-w-md p-6 rounded-2xl bg-violet-50/50 border-2 border-dashed border-indigo-300 flex flex-col items-center justify-center relative overflow-hidden mb-4 shadow-xs">
-            {isScanning ? (
-              <div className="flex flex-col items-center gap-3 py-6">
-                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <p className="text-xs font-bold text-indigo-700 animate-pulse">
-                  Scanning & Parsing ABHA QR Code...
-                </p>
-              </div>
-            ) : scanSuccess ? (
-              <div className="flex flex-col items-center gap-2 text-emerald-600 py-6">
-                <CheckCircle2 className="w-16 h-16 text-emerald-600" />
-                <p className="text-sm font-bold text-slate-900">ABHA Card QR Verified!</p>
-                <p className="text-xs text-slate-600">{patientProfile?.fullName || customName}</p>
-                <p className="text-xs font-mono text-indigo-700 font-bold">{patientProfile?.abhaId || abhaInput}</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-3 text-center">
-                <QrCode className="w-16 h-16 text-indigo-600" />
-                <div>
-                  <p className="text-sm font-bold text-slate-900">Upload ABHA Card Photo / QR</p>
-                  <p className="text-xs text-slate-500 mt-1">Take a photo of your card or upload from gallery</p>
-                </div>
-                <label className="mt-2 px-4 py-2 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-bold border border-indigo-200 hover:bg-indigo-100 cursor-pointer transition flex items-center gap-2 shadow-xs">
-                  <Camera className="w-4 h-4" />
-                  <span>Choose Photo / Capture</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleQrFileUpload}
-                    className="hidden"
-                  />
-                </label>
-                {scanError && (
-                  <p className="text-xs text-rose-600 font-bold mt-2">{scanError}</p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Voice Spoken Name Recognition */}
-      {activeTab === 'VOICE_ID' && (
-        <div className="stitch-card p-8 mb-6 flex flex-col items-center text-center">
-          <div className="w-24 h-24 rounded-full bg-indigo-50 border-2 border-indigo-300 flex items-center justify-center mb-4 shadow-sm">
-            {isListeningVoice ? (
-              <Mic className="w-10 h-10 text-indigo-600 animate-pulse" />
-            ) : (
-              <MicOff className="w-10 h-10 text-slate-400" />
-            )}
-          </div>
-
-          <h3 className="text-lg font-black text-slate-900 mb-1">Voice Patient Identification</h3>
-          <p className="text-xs text-slate-500 max-w-md mb-6">
-            Speak your legal name clearly. The kiosk will transcribe your speech and prepare your intake profile.
-          </p>
-
-          <button
-            type="button"
-            onClick={handleVoiceBiometricLogin}
-            disabled={isListeningVoice}
-            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black text-sm flex items-center gap-2 hover:from-indigo-700 hover:to-violet-700 shadow-md shadow-indigo-500/25 transition active:scale-95 disabled:opacity-50"
+      {/* ── Verified Profile Banner ──────────── */}
+      <AnimatePresence>
+        {patientProfile && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="mt-5 p-4 rounded-3xl bg-gradient-to-r from-indigo-50 to-violet-50 border border-indigo-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
           >
-            <Mic className="w-4 h-4" />
-            <span>{isListeningVoice ? 'Listening...' : 'Tap & Speak Name'}</span>
-          </button>
-
-          {voiceMatchMessage && (
-            <div className="mt-4 p-3 rounded-xl bg-violet-50 border border-indigo-200 text-indigo-800 text-xs font-mono">
-              {voiceMatchMessage}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Verified Profile Banner Preview */}
-      {patientProfile && (
-        <div className="p-4 rounded-3xl bg-violet-50 border border-indigo-200 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white font-black flex items-center justify-center text-base shadow-sm">
-              {patientProfile.fullName.charAt(0)}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-base font-bold text-slate-900">{patientProfile.fullName}</p>
-                <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-800 text-[10px] font-mono font-bold">
-                  {patientProfile.age} Y / {patientProfile.gender}
-                </span>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white font-black flex items-center justify-center text-lg shadow-md shadow-indigo-500/20">
+                {patientProfile.fullName.charAt(0).toUpperCase()}
               </div>
-              <p className="text-xs text-slate-600 font-mono">
-                ABHA: {patientProfile.abhaId} | Blood Group: {patientProfile.bloodGroup || 'O+'}
-              </p>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-base font-black text-slate-900">{patientProfile.fullName}</p>
+                  <span className="px-2 py-0.5 rounded-lg bg-indigo-100 text-indigo-700 text-[10px] font-mono font-bold">
+                    {patientProfile.age} Y / {patientProfile.gender.charAt(0)}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3" />
+                    Verified
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                  <p className="text-xs text-slate-500 font-mono">
+                    ID: <span className="text-indigo-700 font-bold">{patientProfile.id}</span>
+                  </p>
+                  {patientProfile.abhaId && (
+                    <p className="text-xs text-slate-500 font-mono">
+                      ABHA: <span className="text-indigo-700 font-bold">{patientProfile.abhaId}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+            <div className="flex items-center gap-1.5 text-xs text-indigo-600 font-bold shrink-0">
+              <Link2 className="w-3.5 h-3.5" />
+              ABDM Linked
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-          <div className="text-xs text-slate-500 text-right">
-            <span className="text-indigo-700 font-bold">● Active Registered Profile</span>
-          </div>
-        </div>
-      )}
-
-      {/* Navigation Buttons */}
-      <div className="flex items-center justify-between gap-4">
+      {/* ── Navigation buttons ───────────────── */}
+      <div className="flex items-center justify-between gap-4 mt-6">
         <button
           onClick={onBack}
-          className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
+          className="py-3 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back to Consent</span>
+          Back to Consent
         </button>
 
         <button
           id="identity-proceed-btn"
           onClick={() => {
-            if (activeTab === 'ABHA_INPUT' || !patientProfile) {
-              handleCustomSubmit();
+            if (activeTab === 'ABHA' || !patientProfile) {
+              void handleAbhaSubmit();
             } else {
               onContinue();
             }
           }}
-          className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98"
+          className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center gap-3 shadow-lg shadow-indigo-600/20 transition active:scale-[0.98]"
         >
-          <span>Confirm Patient & Record Vitals</span>
-          <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+          Confirm Patient & Record Vitals
+          <ArrowRight className="w-4 h-4 stroke-[2.5]" />
         </button>
       </div>
     </div>

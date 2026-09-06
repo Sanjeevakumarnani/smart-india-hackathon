@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Activity, ArrowLeft, ArrowRight, Heart, Thermometer, Wind, Weight, SkipForward } from 'lucide-react';
 import { LanguageCode, PatientProfile } from '../types';
+import { translate } from '../services/i18n';
 
 interface VitalsCaptureScreenProps {
   patientProfile: PatientProfile | null;
@@ -120,6 +121,7 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
   onContinue,
   onBack,
   selectedLanguage: _selectedLanguage,
+    selectedLanguage,
   isAudioNarration: _isAudioNarration,
 }) => {
   const initVitals = patientProfile?.vitals || {};
@@ -164,6 +166,7 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
           <span>Step 2b: Vitals Capture / स्वास्थ्य मापांक</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Record Your Vitals</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{translate('recordVitals', selectedLanguage)}</h2>
         <p className="text-slate-600 text-sm mt-1">स्वास्थ्य मापन यंत्र द्वारा दर्ज करें — या अज्ञात होने पर छोड़ें</p>
       </div>
 
@@ -198,7 +201,7 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
               {isSkipped ? (
                 <div className="text-center py-3">
                   <p className="text-xs text-slate-500 font-bold">Skipped / Not Available</p>
-                  <button onClick={() => setSkipped(prev => { const s = new Set(prev); s.delete(field.key); return s; })} className="mt-1 text-[10px] text-indigo-600 underline">Re-enter</button>
+                  <button onClick={() => setSkipped(prev => { const s = new Set(prev); s.delete(field.key); return s; })} className="mt-1 text-[10px] text-indigo-600 underline">{translate('next', selectedLanguage)}</button>
                 </div>
               ) : (
                 <>
@@ -234,9 +237,11 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
         <button onClick={onBack} className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm">
           <ArrowLeft className="w-4 h-4" />
           <span>Back to Identity</span>
+                  <span>{translate('backToIdentity', selectedLanguage)}</span>
         </button>
         <button onClick={handleContinue} className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98">
           <span>Confirm Vitals &amp; Select Complaint</span>
+                    <span>{translate('confirmVitals', selectedLanguage)}</span>
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>

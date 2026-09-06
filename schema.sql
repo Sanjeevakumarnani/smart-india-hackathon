@@ -17,11 +17,14 @@ DROP TABLE IF EXISTS patients;
 CREATE TABLE patients (
   id VARCHAR(36) PRIMARY KEY,
   abha_id VARCHAR(30) UNIQUE,
+  abha_address VARCHAR(255) UNIQUE,
+    aadhaar_number CHAR(12),
   aadhaar_last4 CHAR(4),
   full_name VARCHAR(255) NOT NULL,
   age INT,
   gender ENUM('Male', 'Female', 'Other', 'Prefer not to say') DEFAULT 'Prefer not to say',
   dob DATE,
+  photo_url VARCHAR(500),
   blood_group VARCHAR(10),
   phone VARCHAR(20),
   email VARCHAR(255),
@@ -312,6 +315,7 @@ ON DUPLICATE KEY UPDATE display_name=VALUES(display_name);
 INSERT INTO supported_languages (id, code, name, native_name, bcp47, flag_emoji, sort_order) VALUES
 ('lang-en', 'en', 'English', 'English', 'en-IN', '🇬🇧', 1),
 ('lang-hi', 'hi', 'Hindi', 'हिन्दी', 'hi-IN', '🇮🇳', 2),
+('lang-te', 'te', 'Telugu', 'తెలుగు', 'te-IN', '🇮🇳', 2),
 ('lang-ta', 'ta', 'Tamil', 'தமிழ்', 'ta-IN', '🇮🇳', 3),
 ('lang-te', 'te', 'Telugu', 'తెలుగు', 'te-IN', '🇮🇳', 4),
 ('lang-kn', 'kn', 'Kannada', 'ಕನ್ನಡ', 'kn-IN', '🇮🇳', 5),
@@ -322,6 +326,9 @@ INSERT INTO supported_languages (id, code, name, native_name, bcp47, flag_emoji,
 ('lang-pa', 'pa', 'Punjabi', 'ਪੰਜਾਬੀ', 'pa-IN', '🇮🇳', 10),
 ('lang-or', 'or', 'Odia', 'ଓଡ଼ିଆ', 'or-IN', '🇮🇳', 11),
 ('lang-as', 'as', 'Assamese', 'অসমীয়া', 'as-IN', '🇮🇳', 12)
+('lang-kn', 'kn', 'Kannada', 'ಕನ್ನಡ', 'kn-IN', '🇮🇳', 4),
+('lang-ml', 'ml', 'Malayalam', 'മലയാളം', 'ml-IN', '🇮🇳', 5),
+('lang-mr', 'mr', 'Marathi', 'मराठी', 'mr-IN', '🇮🇳', 6)
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 INSERT INTO chief_complaints (id, complaint_key, display_name_en, display_name_hi, icon, color_class, opd_type, is_red_flag_trigger, sort_order) VALUES

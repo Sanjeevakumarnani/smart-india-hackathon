@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "setup:db": "node setup_db.cjs",
+    "migrate:patient-abdm": "node migrate_patient_abdm.cjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

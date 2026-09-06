@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Trash2, Lock, Wifi, CheckCircle2, ArrowRight, Printer } from 'lucide-react';
-import { QueueToken } from '../types';
+import { LanguageCode, QueueToken } from '../types';
+import { translate } from '../services/i18n';
 
 interface SessionPurgeScreenProps {
   createdToken: QueueToken | null;
   onProceed: () => void;
+  selectedLanguage: LanguageCode;
 }
 
 const PURGE_STEPS = [
@@ -15,7 +17,7 @@ const PURGE_STEPS = [
   { icon: <ShieldCheck className="w-5 h-5" />, label: 'Kiosk session cleared — privacy protected', labelHi: 'कियोस्क सत्र समाप्त — गोपनीयता सुरक्षित', delay: 2400 },
 ];
 
-export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdToken, onProceed }) => {
+export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdToken, onProceed, selectedLanguage }) => {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [countdown, setCountdown] = useState(8);
   const allDone = completedSteps.length === PURGE_STEPS.length;
@@ -52,7 +54,7 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
         <ShieldCheck className="w-10 h-10 text-indigo-600" />
       </div>
 
-      <h2 className="text-2xl font-black text-slate-900 text-center mb-1">Your Data is Protected</h2>
+      <h2 className="text-2xl font-black text-slate-900 text-center mb-1">{translate('dataProtected', selectedLanguage)}</h2>
       <p className="text-sm text-slate-600 text-center mb-8">आपकी गोपनीयता सुरक्षित है — DPDP Act 2023 के अनुसार</p>
 
       {/* Purge Steps */}
