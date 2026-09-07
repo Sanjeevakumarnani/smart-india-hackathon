@@ -132,6 +132,7 @@ export interface InteractionResult {
 }
 
 export interface FamilyHistory {
+  noSignificantFamilyHistory?: boolean;
   diabetes: boolean;
   hypertension: boolean;
   heartDisease: boolean;
@@ -139,6 +140,26 @@ export interface FamilyHistory {
   kidneyDisease: boolean;
   thyroid: boolean;
   other?: string;
+}
+
+export interface PrescriptionMedicationItem {
+  id: string;
+  medicineName: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string;
+}
+
+export interface DoctorPrescription {
+  id?: string;
+  encounterId: string;
+  patientId: string;
+  prescribedBy: string;
+  doctorDepartment?: string;
+  medications: PrescriptionMedicationItem[];
+  instructions?: string;
+  issuedAt?: string;
 }
 
 export interface PersonalHistory {

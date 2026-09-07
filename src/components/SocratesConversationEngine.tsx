@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Mic,
   MicOff,
@@ -11,10 +11,19 @@ import {
   CheckCircle2,
   Brain,
   Loader2,
+  HelpCircle,
+  Stethoscope,
+  Leaf,
+  AlertCircle,
+  RefreshCw,
+  Clock,
+  Pill,
+  Activity,
+  HeartPulse,
 } from 'lucide-react';
-import { HistoryObject, LanguageCode, SocratesData } from '../types';
-import { SOCRATES_QUESTIONS_MAP } from '../data/mockData';
+import { HistoryObject, LanguageCode, SocratesData, OpdType } from '../types';
 import { speechService } from '../services/speechService';
+import { translate } from '../services/i18n';
 
 interface SocratesConversationEngineProps {
   complaintId: string;
@@ -26,91 +35,67 @@ interface SocratesConversationEngineProps {
   isAudioNarration: boolean;
 }
 
-const SOCRATES_STEP_TRANSLATIONS: Record<string, Partial<Record<LanguageCode, string>>> = {
-  site: {
-    te: 'నొప్పి లేదా సమస్య ఎక్కడ ఉంది?',
-    ta: 'வலி அல்லது அசௌகரியம் எங்குள்ளது?',
-    kn: 'ನೋವು ಅಥವಾ ತೊಂದರೆ ನಿಖರವಾಗಿ ಎಲ್ಲಿದೆ?',
-    ml: 'വേദന കൃത്യമായി എവിടെയാണ് അനുഭവപ്പെടുന്നത്?',
-    mr: 'वेदना किंवा त्रास नक्की कुठे होत आहे?',
-  },
-  onset: {
-    te: 'ఈ సమస్య ఎప్పుడు మరియు ఎలా ప్రారంభమైంది?',
-    ta: 'இந்த பிரச்சனை எப்போது எப்படி தொடங்கியது?',
-    kn: 'ಈ ತೊಂದರೆ ಹೇಗೆ ಮತ್ತು ಯಾವಾಗ ಪ್ರಾರಂಭವಾಯಿತು?',
-    ml: 'ഈ പ്രശ്നം എപ്പോൾ, എങ്ങനെയാണ് തുടങ്ങിയത്?',
-    mr: 'हा त्रास केव्हा आणि कसा सुरू झाला?',
-  },
-  character: {
-    te: 'నొప్పి లేదా బాధ యొక్క స్వభావం ఎలా ఉంది?',
-    ta: 'வலியின் தன்மை எப்படி இருக்கிறது?',
-    kn: 'ನೋವಿನ ಸ್ವರೂಪ ಹೇಗಿದೆ?',
-    ml: 'വേദനയുടെ സ്വഭാവം എങ്ങനെയുള്ളതാണ്?',
-    mr: 'वेदना किंवा त्रासाचे स्वरूप कसे जाणवत आहे?',
-  },
-  radiation: {
-    te: 'నొప్పి శరీరంలో ఇతర భాగాలకు వ్యాపిస్తుందా?',
-    ta: 'வலி உடலின் பிற பகுதிகளுக்கு பரவுகிறதா?',
-    kn: 'ನೋವು ದೇಹದ ಇತರ ಭಾಗಗಳಿಗೆ ಹರಡುತ್ತಿದೆಯೇ?',
-    ml: 'വേദന മറ്റ് ഭാഗങ്ങളിലേക്ക് വ്യാപിക്കുന്നുണ്ടോ?',
-    mr: 'वेदना शरीराच्या इतर भागात पसरत आहे का?',
-  },
-  associations: {
-    te: 'దీనితో పాటు ఇతర అనుబంధ లక్షణాలు ఏమైనా ఉన్నాయా?',
-    ta: 'இத்துடன் தொடர்புடைய பிற அறிகுறிகள் ஏதேனும் உள்ளதா?',
-    kn: 'ಇದರೊಂದಿಗೆ ಬೇರೆ ಯಾವುದೇ ಸಂಬಂಧಿತ ಲಕ್ಷಣಗಳು ಇವೆಯೇ?',
-    ml: 'ഇതോടൊപ്പം മറ്റ് അനുബന്ധ ലക്ഷണങ്ങൾ എന്തെങ്കിലും ഉണ്ടോ?',
-    mr: 'यासोबत इतर कोणतीही संबंधित लक्षणे जाणवत आहेत का?',
-  },
-  timing: {
-    te: 'ఈ నొప్పి ఎంత సమయంగా కొనసాగుతోంది?',
-    ta: 'இந்த வலி எவ்வளவு நேரமாக நீடிக்கிறது?',
-    kn: 'ಈ ನೋವು ಎಷ್ಟು ಸಮಯದಿಂದ ಮುಂದುವರಿಯುತ್ತಿದೆ?',
-    ml: 'ഈ വേദന എത്ര സമയമായി തുടരുന്നു?',
-    mr: 'ही वेदना किती वेळापासून सतत होत आहे?',
-  },
-  exacerbating: {
-    te: 'ఏమి చేయడం వల్ల నొప్పి పెరుగుతుంది లేదా తగ్గుతుంది?',
-    ta: 'எதனால் வலி அதிகமாகிறது அல்லது குறைகிறது?',
-    kn: 'ಯಾವ ಕಾರಣದಿಂದ ನೋವು ಹೆಚ್ಚಾಗುತ್ತದೆ ಅಥವಾ ಕಡಿಮೆಯಾಗುತ್ತದೆ?',
-    ml: 'എന്തുകൊണ്ടാണ് വേദന കൂടുകയോ കുറയുകയോ ചെയ്യുന്നത്?',
-    mr: 'कशाने वेदना वाढते किंवा कमी होते?',
-  },
-  severity: {
-    te: '0 నుండి 10 స్కేలులో మీ నొప్పి తీవ్రతను తెలియజేయండి',
-    ta: '0 முதல் 10 வரையிலான அளவில் உங்கள் வலி தீவிரத்தை மதிப்பிடுங்கள்',
-    kn: '0 ರಿಂದ 10 ರ ಪ್ರಮಾಣದಲ್ಲಿ ನಿಮ್ಮ ನೋವಿನ ತೀವ್ರತೆಯನ್ನು ರೇಟ್ ಮಾಡಿ',
-    ml: '0 മുതൽ 10 വരെയുള്ള സ്കെയിലിൽ നിങ്ങളുടെ വേദനയുടെ തീവ്രത രേഖപ്പെടുത്തുക',
-    mr: '0 ते 10 च्या प्रमाणात आपल्या वेदनेची तीव्रता सांगा',
-  },
-};
-
-const getQuestionRegionalSubtitle = (q: any, lang: LanguageCode): string | undefined => {
-  if (lang === 'en') return undefined;
-  return q?.regionalTitles?.[lang] || SOCRATES_STEP_TRANSLATIONS[q?.step]?.[lang];
-};
-
-export interface AdaptiveQuestion {
+export interface GuidanceKeyword {
   id: string;
-  step: string;
-  title: string;
-  titleRegional?: string;
-  subtitle?: string;
-  reasoning?: string;
-  options?: { label: string; labelRegional?: string; code: string; isRed?: boolean }[];
-  isPainScale?: boolean;
-  isMultiSelect?: boolean;
-  isFinal?: boolean;
+  question: string;
+  questionRegional: string;
+  isCovered: boolean;
+  extractedDetail: string | null;
 }
 
-export const SOCRATES_DIMENSIONS: { key: keyof SocratesData; label: string; short: string }[] = [
-  { key: 'site', label: 'Site', short: 'S' },
-  { key: 'onset', label: 'Onset', short: 'O' },
-  { key: 'character', label: 'Character', short: 'C' },
-  { key: 'radiation', label: 'Radiation', short: 'R' },
-  { key: 'associations', label: 'Associations', short: 'A' },
-  { key: 'timing', label: 'Timing', short: 'T' },
-  { key: 'severity', label: 'Severity', short: 'S' },
+const DEFAULT_ALLOPATHIC_KEYWORDS: GuidanceKeyword[] = [
+  {
+    id: 'problem',
+    question: 'What is the problem?',
+    questionRegional: 'మీ సమస్య ఏమిటి? (నొప్పి లేదా బాధ ఎక్కడ ఉంది?)',
+    isCovered: false,
+    extractedDetail: null,
+  },
+  {
+    id: 'duration',
+    question: 'From how long have you been experiencing the symptoms?',
+    questionRegional: 'ఈ లక్షణాలు ఎంత కాలం నుండి ఉన్నాయి?',
+    isCovered: false,
+    extractedDetail: null,
+  },
+  {
+    id: 'medications',
+    question: 'Have you taken any previous medications?',
+    questionRegional: 'గతంలో లేదా ఇటీవల ఏవైనా మందులు తీసుకున్నారా?',
+    isCovered: false,
+    extractedDetail: null,
+  },
+  {
+    id: 'associations',
+    question: 'Any allergies or other associated symptoms?',
+    questionRegional: 'ఏవైనా అలెర్జీలు లేదా ఇతర సంబంధిత లక్షణాలు ఉన్నాయా?',
+    isCovered: false,
+    extractedDetail: null,
+  },
+  {
+    id: 'severity',
+    question: 'Severity of pain or discomfort (0 to 10)?',
+    questionRegional: 'నొప్పి లేదా అసౌకర్య తీవ్రత ఎంత (0 నుండి 10)?',
+    isCovered: false,
+    extractedDetail: null,
+  },
+];
+
+const AYURVEDA_EXTRA_KEYWORDS: GuidanceKeyword[] = [
+  {
+    id: 'agni_koshtha',
+    question: 'Digestive fire & bowel routine (Agni & Koshtha)?',
+    questionRegional: 'మీ జీర్ణశక్తి మరియు మలవిసర్జన ఎలా ఉంది? (అగ్ని & కోష్ఠ)',
+    isCovered: false,
+    extractedDetail: null,
+  },
+  {
+    id: 'ahara_vihara',
+    question: 'Daily diet, routine & sleep patterns (Ahara-Vihara)?',
+    questionRegional: 'మీ ఆహారపు అలవాట్లు మరియు నిద్ర సమయాలు ఎలా ఉన్నాయి? (ఆహార-విహార & నిద్ర)',
+    isCovered: false,
+    extractedDetail: null,
+  },
 ];
 
 export const SocratesConversationEngine: React.FC<SocratesConversationEngineProps> = ({
@@ -122,726 +107,484 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
   selectedLanguage,
   isAudioNarration,
 }) => {
-  const defaultQuestions = SOCRATES_QUESTIONS_MAP[complaintId] || SOCRATES_QUESTIONS_MAP['chest_pain'];
-  const [questionsList, setQuestionsList] = useState<AdaptiveQuestion[]>([defaultQuestions[0]]);
-  const [currentQIndex, setCurrentQIndex] = useState(0);
+  const isAyush = historyObject.opdType === 'ayurveda';
+
+  const initialKeywords = isAyush
+    ? [...DEFAULT_ALLOPATHIC_KEYWORDS, ...AYURVEDA_EXTRA_KEYWORDS]
+    : DEFAULT_ALLOPATHIC_KEYWORDS;
+
+  const [keywords, setKeywords] = useState<GuidanceKeyword[]>(initialKeywords);
+  const [transcript, setTranscript] = useState(
+    historyObject.transcriptLogs?.join(' ') || ''
+  );
+  const [inputText, setInputText] = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [customInputText, setCustomInputText] = useState('');
-  const [isAdapting, setIsAdapting] = useState(false);
-  const [answeredCount, setAnsweredCount] = useState(0);
-  const [recognitionObj, setRecognitionObj] = useState<any>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [redFlags, setRedFlags] = useState<string[]>(historyObject.redFlags || []);
+  const [nextFollowup, setNextFollowup] = useState<{
+    keywordId: string;
+    prompt: string;
+    promptRegional: string;
+  } | null>(null);
+  const [followupAnswer, setFollowupAnswer] = useState('');
+  const [allCovered, setAllCovered] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
-  const currentQ = questionsList[currentQIndex] || defaultQuestions[0];
-  const socrates = historyObject.socrates;
+  const coveredCount = keywords.filter((k) => k.isCovered).length;
+  const totalCount = keywords.length;
 
-  // Trigger TTS on question change if audio narration is on
+  // Initial welcome audio guidance
   useEffect(() => {
-    if (isAudioNarration && currentQ) {
-      const regional = currentQ.titleRegional || getQuestionRegionalSubtitle(currentQ, selectedLanguage);
-      const textToSpeak = regional || currentQ.title;
-      speechService.speak(textToSpeak, selectedLanguage);
+    if (isAudioNarration) {
+      const welcomePrompt =
+        selectedLanguage === 'te'
+          ? 'దయచేసి మీ సమస్యను వివరిస్తూ మాట్లాడండి లేదా టైప్ చేయండి. కింద చూపిన ముఖ్య ప్రశ్నలు వైద్యునికి సహాయపడతాయి.'
+          : selectedLanguage === 'ta'
+          ? 'தயவுசெய்து உங்கள் பிரச்சனையை விளக்கி பேசவும் அல்லது தட்டச்சு செய்யவும்.'
+          : selectedLanguage === 'kn'
+          ? 'ದಯವಿಟ್ಟು ನಿಮ್ಮ ಸಮಸ್ಯೆಯನ್ನು ಮಾತನಾಡಿ ಅಥವಾ ಟೈಪ್ ಮಾಡಿ ವಿವರಿಸಿ.'
+          : selectedLanguage === 'ml'
+          ? 'ദയവായി നിങ്ങളുടെ പ്രശ്നം സംസാരിക്കുകയോ ടൈപ്പ് ചെയ്യുകയോ ചെയ്യുക.'
+          : selectedLanguage === 'mr'
+          ? 'कृपया आपला त्रास बोलून किंवा टाईप करून सांगा. खाली दिलेले मुद्दे डॉक्टरांना मदत करतील.'
+          : isAyush
+          ? 'Please explain your symptoms, daily diet, digestion, and routine freely by voice or text. Our Ayurveda intake will analyze your consultation notes.'
+          : 'Please speak or type and explain your symptoms freely. Covering the guidance keywords below helps your doctor give an accurate diagnosis.';
+
+      speechService.speak(welcomePrompt, selectedLanguage);
     }
-  }, [currentQIndex, selectedLanguage, isAudioNarration, currentQ]);
+  }, [isAudioNarration, selectedLanguage, isAyush]);
 
-  // Submit Answer & Fetch Next Dynamic Question
-  const submitAnswer = async (answerText: string, optionObj?: any) => {
-    if (!answerText || !answerText.trim() || isAdapting) return;
+  // Analyze transcript with backend NLP endpoint
+  const analyzeTranscript = useCallback(
+    async (textToAnalyze: string) => {
+      if (!textToAnalyze.trim() || textToAnalyze.trim().length < 5) return;
+      setIsAnalyzing(true);
+      try {
+        const res = await fetch('/api/converse/analyze-transcript', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcript: textToAnalyze,
+            opdType: historyObject.opdType || 'allopathic',
+            complaintId,
+            selectedLanguage,
+            priorKeywords: keywords,
+          }),
+        });
 
-    const cleanAnswer = answerText.trim();
-    const stepKey = currentQ.step as keyof SocratesData;
-    const updatedSocrates: SocratesData = { ...socrates };
-
-    if (optionObj) {
-      if (currentQ.isMultiSelect) {
-        const currentList = (updatedSocrates[stepKey] as string[]) || [];
-        (updatedSocrates[stepKey] as any) = [...currentList, optionObj.label];
-      } else {
-        (updatedSocrates[stepKey] as any) = optionObj.label;
-      }
-    } else {
-      (updatedSocrates[stepKey] as any) = cleanAnswer;
-    }
-
-    // Real-time Red-Flag Elevation
-    const updatedRedFlags = [...(historyObject.redFlags || [])];
-    if (optionObj?.isRed) {
-      const flagPrefix =
-        complaintId === 'chest_pain' ? 'Cardiac Red Flag' :
-        complaintId === 'headache' || complaintId === 'headache_neuro' ? 'Neurological Alert' :
-        complaintId === 'breathlessness' ? 'Respiratory Distress Alert' :
-        complaintId === 'stomach_digestive' ? 'Acute Abdomen Alert' :
-        complaintId === 'skin_rash' ? 'Severe Allergic / Cutaneous Warning' : 'Emergency Clinical Alert';
-      const flagText = `${flagPrefix}: ${optionObj.label}`;
-      if (!updatedRedFlags.includes(flagText)) {
-        updatedRedFlags.push(flagText);
-      }
-    }
-
-    const patientLog = { speaker: 'patient' as const, text: cleanAnswer, time: new Date().toLocaleTimeString() };
-    const updatedTranscripts = [...(historyObject.transcriptLogs || []), patientLog];
-
-    onUpdateHistory({
-      ...historyObject,
-      socrates: updatedSocrates,
-      redFlags: updatedRedFlags,
-      transcriptLogs: updatedTranscripts,
-    });
-
-    setVoiceTranscript('');
-    setCustomInputText('');
-    setIsAdapting(true);
-
-    try {
-      const res = await fetch('/api/converse/adaptive-question', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          complaintId,
-          chiefComplaint: historyObject.chiefComplaint,
-          conversationHistory: updatedTranscripts,
-          socrates: updatedSocrates,
-          redFlags: updatedRedFlags,
-          selectedLanguage,
-          lastAnswer: cleanAnswer,
-          stepIndex: answeredCount + 1,
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.question) {
-          const nextQuestion: AdaptiveQuestion = data.question;
-          const mergedFlags = Array.from(new Set([...updatedRedFlags, ...(data.newRedFlags || [])]));
-          const mergedSocrates = { ...updatedSocrates, ...(data.extractedAttributes || {}) };
-
-          onUpdateHistory({
-            ...historyObject,
-            socrates: mergedSocrates,
-            redFlags: mergedFlags,
-            transcriptLogs: [
-              ...updatedTranscripts,
-              { speaker: 'kiosk', text: nextQuestion.title, time: new Date().toLocaleTimeString() },
-            ],
-          });
-
-          setQuestionsList(prev => [...prev, nextQuestion]);
-          setCurrentQIndex(prev => prev + 1);
-          setAnsweredCount(prev => prev + 1);
-
-          if (isAudioNarration) {
-            const toSpeak = nextQuestion.titleRegional || nextQuestion.title;
-            speechService.speak(toSpeak, selectedLanguage);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.keywords)) {
+            setKeywords(data.keywords);
           }
-          setIsAdapting(false);
-          return;
+          setAllCovered(Boolean(data.allCovered));
+          setNextFollowup(data.nextFollowupQuestion || null);
+
+          if (Array.isArray(data.redFlags) && data.redFlags.length > 0) {
+            const merged = Array.from(new Set([...redFlags, ...data.redFlags]));
+            setRedFlags(merged);
+            onUpdateHistory({
+              ...historyObject,
+              redFlags: merged,
+              transcriptLogs: [textToAnalyze],
+              socrates: {
+                ...historyObject.socrates,
+                ...(data.extractedSocrates || {}),
+              },
+            });
+          } else {
+            onUpdateHistory({
+              ...historyObject,
+              transcriptLogs: [textToAnalyze],
+              socrates: {
+                ...historyObject.socrates,
+                ...(data.extractedSocrates || {}),
+              },
+            });
+          }
+
+          // If a follow-up is prompted, speak it if audio narration is on
+          if (data.nextFollowupQuestion && isAudioNarration) {
+            const promptVoice =
+              data.nextFollowupQuestion.promptRegional ||
+              data.nextFollowupQuestion.prompt;
+            speechService.speak(promptVoice, selectedLanguage);
+          }
         }
+      } catch (err) {
+        console.warn('Transcript analyze error:', err);
+      } finally {
+        setIsAnalyzing(false);
       }
-    } catch (err) {
-      console.warn('[Adaptive Converse] Network error, using fallback:', err);
-    }
+    },
+    [complaintId, historyObject, isAudioNarration, keywords, onUpdateHistory, redFlags, selectedLanguage]
+  );
 
-    // Static fallback if API is unreachable
-    const nextIdx = currentQIndex + 1;
-    if (nextIdx < defaultQuestions.length) {
-      const nextFallback = defaultQuestions[nextIdx];
-      setQuestionsList(prev => [...prev, nextFallback]);
-      setCurrentQIndex(nextIdx);
-      setAnsweredCount(prev => prev + 1);
-      if (isAudioNarration) {
-        const regional = getQuestionRegionalSubtitle(nextFallback, selectedLanguage);
-        speechService.speak(regional || nextFallback.title, selectedLanguage);
-      }
-    } else {
-      onComplete();
-    }
-    setIsAdapting(false);
-  };
-
-  // Voice STT Toggle
+  // Toggle voice recognition
   const toggleVoice = () => {
     if (isListening) {
-      if (recognitionObj) recognitionObj.stop();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
       setIsListening(false);
     } else {
+      setIsListening(true);
       const rec = speechService.createRecognition(
         selectedLanguage,
-        (transcript, isFinal) => {
-          setVoiceTranscript(transcript);
-          if (isFinal && transcript.trim()) {
-            submitAnswer(transcript);
+        (spoken) => {
+          if (spoken && spoken.trim()) {
+            const combined = transcript
+              ? `${transcript} ${spoken}`
+              : spoken;
+            setTranscript(combined);
+            setInputText(combined);
+            analyzeTranscript(combined);
           }
         },
         (err) => {
-          console.warn('Voice recognition error:', err);
+          console.warn('STT Error:', err);
           setIsListening(false);
         },
-        () => setIsListening(false)
+        () => {
+          setIsListening(false);
+        }
       );
-
-      setRecognitionObj(rec);
-      rec.start();
-      setIsListening(true);
+      recognitionRef.current = rec;
+      rec?.start();
     }
   };
 
-  const handleOptionSelect = (option: any) => {
-    if (currentQ.isMultiSelect) {
-      const stepKey = currentQ.step as keyof SocratesData;
-      const currentList = Array.isArray(socrates[stepKey]) ? [...(socrates[stepKey] as string[])] : [];
-      const exists = currentList.includes(option.label);
-      const nextList = exists ? currentList.filter(l => l !== option.label) : [...currentList, option.label];
-      const updatedSocrates: SocratesData = { ...socrates, [stepKey]: nextList };
-
-      const updatedRedFlags = [...(historyObject.redFlags || [])];
-      if (option.isRed && !exists) {
-        const flagText = `Clinical Alert: ${option.label}`;
-        if (!updatedRedFlags.includes(flagText)) updatedRedFlags.push(flagText);
-      }
-
-      onUpdateHistory({
-        ...historyObject,
-        socrates: updatedSocrates,
-        redFlags: updatedRedFlags,
-      });
-    } else {
-      submitAnswer(option.label, option);
-    }
+  const handleSendInput = () => {
+    if (!inputText.trim()) return;
+    const combined = transcript
+      ? `${transcript} ${inputText}`
+      : inputText;
+    setTranscript(combined);
+    setInputText('');
+    analyzeTranscript(combined);
   };
 
-  const handlePainSeverity = (val: number) => {
-    const updatedSocrates: SocratesData = { ...socrates, severity: val };
-    const updatedRedFlags = [...(historyObject.redFlags || [])];
+  const handleSendFollowup = () => {
+    if (!followupAnswer.trim() || !nextFollowup) return;
+    const updatedTranscript = `${transcript}. [${nextFollowup.prompt}]: ${followupAnswer}`;
+    setTranscript(updatedTranscript);
+    setFollowupAnswer('');
+    analyzeTranscript(updatedTranscript);
+  };
 
-    if (val >= 7) {
-      let acuteFlag: string | null = null;
-      if (complaintId === 'chest_pain') {
-        acuteFlag = 'Critical: Severe Pain Score (>= 7/10) with Acute Chest Discomfort';
-      } else if (complaintId === 'headache' || complaintId === 'headache_neuro') {
-        acuteFlag = 'Critical: Thunderclap / Severe Pain Score (>= 7/10) with Neurological Risk';
-      } else if (complaintId === 'breathlessness') {
-        acuteFlag = 'Critical: Severe Respiratory Distress (Pain/Discomfort Score >= 7/10)';
-      }
-      if (acuteFlag && !updatedRedFlags.includes(acuteFlag)) {
-        updatedRedFlags.push(acuteFlag);
-      }
-    }
-
-    onUpdateHistory({
-      ...historyObject,
-      socrates: updatedSocrates,
-      redFlags: updatedRedFlags,
+  const handleSelectKeywordToAnswer = (kw: GuidanceKeyword) => {
+    setNextFollowup({
+      keywordId: kw.id,
+      prompt: kw.question,
+      promptRegional: kw.questionRegional,
     });
-
-    submitAnswer(`Pain severity rated as ${val}/10`);
-  };
-
-  const handlePlayPrompt = () => {
-    const regional = currentQ.titleRegional || getQuestionRegionalSubtitle(currentQ, selectedLanguage);
-    const textToSpeak = regional || currentQ.title;
-    speechService.speak(textToSpeak, selectedLanguage);
-  };
-
-  const handleNext = () => {
-    if (isAdapting) return;
-
-    if (currentQ.isMultiSelect) {
-      const stepKey = currentQ.step as keyof SocratesData;
-      const selected = (socrates[stepKey] as string[]) || [];
-      if (selected.length > 0) {
-        submitAnswer(selected.join(', '));
-        return;
-      }
-    }
-
-    if (currentQ.isFinal || answeredCount >= 6) {
-      onComplete();
-    } else {
-      submitAnswer('No additional specific symptoms / Proceeding');
+    if (isAudioNarration) {
+      speechService.speak(kw.questionRegional || kw.question, selectedLanguage);
     }
   };
 
-  const handlePrev = () => {
-    if (currentQIndex > 0) {
-      setCurrentQIndex((prev) => prev - 1);
-    } else {
-      onBack();
+  const getKeywordIcon = (id: string) => {
+    switch (id) {
+      case 'problem':
+        return <Activity className="w-4 h-4 text-indigo-600" />;
+      case 'duration':
+        return <Clock className="w-4 h-4 text-amber-600" />;
+      case 'medications':
+        return <Pill className="w-4 h-4 text-emerald-600" />;
+      case 'associations':
+        return <HeartPulse className="w-4 h-4 text-rose-600" />;
+      case 'severity':
+        return <Brain className="w-4 h-4 text-purple-600" />;
+      case 'agni_koshtha':
+      case 'ahara_vihara':
+        return <Leaf className="w-4 h-4 text-emerald-700" />;
+      default:
+        return <Activity className="w-4 h-4 text-indigo-600" />;
     }
   };
-
-  const painFaces = [
-    {
-      score: 0,
-      face: '😊',
-      label: 'No Pain',
-      regional: {
-        te: 'నొప్పి లేదు',
-        ta: 'வலி இல்லை',
-        kn: 'ನೋವಿಲ್ಲ',
-        ml: 'വേദനയില്ല',
-        mr: 'वेदना नाही',
-      },
-    },
-    {
-      score: 2,
-      face: '🙂',
-      label: 'Mild',
-      regional: {
-        te: 'తేలికపాటి',
-        ta: 'லேசான வலி',
-        kn: 'ಸ್ವಲ್ಪ ನೋವು',
-        ml: 'നേരിയ വേദന',
-        mr: 'किरकोळ वेदना',
-      },
-    },
-    {
-      score: 4,
-      face: '😐',
-      label: 'Moderate',
-      regional: {
-        te: 'మధ్యస్థమైనది',
-        ta: 'மிதமான வலி',
-        kn: 'ಸಾಧಾರಣ ನೋವು',
-        ml: 'മിതമായ വേദന',
-        mr: 'मध्यम वेदना',
-      },
-    },
-    {
-      score: 6,
-      face: '😣',
-      label: 'Severe',
-      regional: {
-        te: 'తీవ్రమైనది',
-        ta: 'கடுமையான வலி',
-        kn: 'ತೀವ್ರ ನೋವು',
-        ml: 'കഠിനമായ വേദന',
-        mr: 'तीव्र वेदना',
-      },
-    },
-    {
-      score: 8,
-      face: '😫',
-      label: 'Very Severe',
-      regional: {
-        te: 'చాలా తీవ్రమైనది',
-        ta: 'மிகக் கடுமையான',
-        kn: 'ಅತಿ ತೀವ್ರ ನೋವು',
-        ml: 'വളരെ കഠിനം',
-        mr: 'असह्य वेदना',
-      },
-    },
-    {
-      score: 10,
-      face: '😭',
-      label: 'Worst Possible',
-      regional: {
-        te: 'భరించలేని నొప్పి',
-        ta: 'தாங்க முடியாத',
-        kn: 'ತಡೆಯಲಾರದ ನೋವು',
-        ml: 'സഹിക്കാനാവാത്തത്',
-        mr: 'अत्यंत तीव्र वेदना',
-      },
-    },
-  ];
-
-  const hasActiveRedFlag = historyObject.redFlags && historyObject.redFlags.length > 0;
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-6">
-      {/* Red-Flag Urgent Banner if triggered */}
-      {hasActiveRedFlag && (
-        <div className="mb-6 p-4 rounded-3xl bg-[#20080e]/95 border-2 border-rose-500 text-white flex items-center justify-between shadow-2xl shadow-rose-950/60 animate-bounce">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/40">
-              <ShieldAlert className="w-6 h-6 animate-spin" />
-            </div>
-            <div>
-              <p className="text-sm font-black text-rose-200 uppercase tracking-wide">
-                CRITICAL TRIAGE PROTOCOL ACTIVATED
-              </p>
-              <p className="text-xs text-rose-300">
-                Symptoms indicate potential Acute Coronary Syndrome. Elevated to Priority 1 (Red).
-              </p>
-            </div>
-          </div>
-          <span className="px-3 py-1 rounded-full bg-rose-600 font-mono font-black text-xs">
-            PRIORITY 1
+    <div className="w-full max-w-5xl mx-auto px-4 py-4">
+      {/* Header Banner */}
+      <div className="text-center mb-5">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
+          {isAyush ? (
+            <Leaf className="w-4 h-4 text-emerald-600" />
+          ) : (
+            <Stethoscope className="w-4 h-4 text-indigo-600" />
+          )}
+          <span>
+            {isAyush
+              ? 'AYUSH Rogi Pariksha / आयुर्वेदिक परामर्श'
+              : 'Step 3: Clinical Intake & Free Narration'}
           </span>
+        </div>
+
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
+          {selectedLanguage === 'te'
+            ? 'మీ సమస్యను వివరంగా వివరించండి'
+            : selectedLanguage === 'ta'
+            ? 'உங்கள் பிரச்சனையை விரிவாக விளக்குங்கள்'
+            : selectedLanguage === 'kn'
+            ? 'ನಿಮ್ಮ ಸಮಸ್ಯೆಯನ್ನು ವಿವರವಾಗಿ ವಿವರಿಸಿ'
+            : selectedLanguage === 'ml'
+            ? 'നിങ്ങളുടെ പ്രശ്നം വിശദമായി പറയുക'
+            : selectedLanguage === 'mr'
+            ? 'आपली समस्या सविस्तर सांगा'
+            : 'Explain Your Problem in Your Own Words'}
+        </h2>
+
+        <p className="text-slate-600 text-xs sm:text-sm mt-1 max-w-2xl mx-auto">
+          {isAyush
+            ? 'Speak or type freely in your regional language. Cover the key questions below regarding your symptoms, digestion, and daily routine.'
+            : 'Speak or type freely in your own language. We automatically recognize your problem, duration, past medicines, and ask only for missing details.'}
+        </p>
+      </div>
+
+      {/* Red Flag Alert Banner */}
+      {redFlags.length > 0 && (
+        <div className="mb-4 p-4 rounded-2xl bg-rose-50 border-2 border-rose-400 text-rose-900 flex items-start gap-3 shadow-sm animate-pulse">
+          <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-xs font-black uppercase tracking-wider text-rose-800">
+              🚨 Clinical Red-Flag Triggered
+            </h4>
+            <div className="mt-1 space-y-0.5">
+              {redFlags.map((flag, idx) => (
+                <p key={idx} className="text-xs font-semibold">
+                  • {flag}
+                </p>
+              ))}
+            </div>
+            <p className="text-[11px] text-rose-700 mt-1 font-medium">
+              OPD queue priority has been updated for high-urgency physician review.
+            </p>
+          </div>
         </div>
       )}
 
-      {/* SOCRATES Dimensions Flow Tracker */}
-      <div className="mb-5 bg-white/80 backdrop-blur-sm p-4 rounded-2xl border border-slate-200 shadow-xs">
-        <div className="flex items-center justify-between gap-2 mb-3">
+      {/* 5 Guidance Keywords Bar */}
+      <div className="stitch-card p-4 sm:p-5 mb-5 shadow-xs border border-indigo-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold">
-              Dynamic Inquiry #{currentQIndex + 1}
-            </span>
-            <span className="text-xs text-slate-500 font-medium">
-              Dimension: <strong className="text-indigo-900 font-bold">{currentQ.step?.toUpperCase()}</strong>
+            <Sparkles className="w-4 h-4 text-indigo-600" />
+            <span className="text-xs font-black uppercase tracking-wider text-slate-800">
+              Guidance Keywords / आवश्यक बिंदु
             </span>
           </div>
-
-          <span className="text-xs font-mono text-slate-500">
-            {answeredCount} of ~6 answered
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-600">
+              Covered: {coveredCount} of {totalCount}
+            </span>
+            <div className="w-24 h-2 rounded-full bg-slate-200 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-indigo-600 to-emerald-500 transition-all duration-300"
+                style={{ width: `${(coveredCount / totalCount) * 100}%` }}
+              />
+            </div>
+          </div>
         </div>
 
-        {/* 7 SOCRATES Dimension Badges */}
-        <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-          {SOCRATES_DIMENSIONS.map((dim) => {
-            const val = socrates[dim.key];
-            const isFilled = Array.isArray(val) ? val.length > 0 : val !== undefined && val !== null && val !== '';
-            const isCurrent = currentQ.step === dim.key;
-
+        {/* Keyword Pills Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+          {keywords.map((kw) => {
             return (
               <div
-                key={dim.key}
-                className={`py-1.5 px-1 rounded-xl text-center flex flex-col items-center justify-center transition-all ${
-                  isCurrent
-                    ? 'bg-indigo-600 text-white font-bold shadow-sm shadow-indigo-600/30 ring-2 ring-indigo-400'
-                    : isFilled
-                    ? 'bg-emerald-50 border border-emerald-300 text-emerald-700 font-semibold'
-                    : 'bg-slate-100 border border-slate-200 text-slate-400'
+                key={kw.id}
+                onClick={() => !kw.isCovered && handleSelectKeywordToAnswer(kw)}
+                className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-start gap-2.5 ${
+                  kw.isCovered
+                    ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950 shadow-xs'
+                    : 'bg-white hover:bg-violet-50/60 border-slate-200 hover:border-indigo-300 text-slate-700'
                 }`}
               >
-                <div className="flex items-center gap-0.5">
-                  <span className="text-[11px] sm:text-xs font-mono font-black">{dim.short}</span>
-                  {isFilled && <CheckCircle2 className="w-2.5 h-2.5 text-emerald-600 hidden sm:inline" />}
+                <div className="mt-0.5 shrink-0">{getKeywordIcon(kw.id)}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="text-xs font-bold truncate">#{kw.question}</p>
+                    {kw.isCovered ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <span className="text-[10px] font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 shrink-0">
+                        Missing
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">
+                    {kw.isCovered && kw.extractedDetail
+                      ? `✓ ${kw.extractedDetail}`
+                      : kw.questionRegional}
+                  </p>
                 </div>
-                <span className="text-[9px] sm:text-[10px] truncate max-w-full hidden sm:inline">{dim.label}</span>
               </div>
             );
           })}
         </div>
+
+        <p className="text-[11px] text-slate-500 mt-2.5 text-center">
+          💡 If you explain all keywords, we will skip questions directly to the next stage.
+          If any keyword is skipped, we only ask that missing question.
+        </p>
       </div>
 
-      {/* Main Question Card */}
-      <div className="stitch-card p-6 sm:p-8 mb-6">
-        {/* Dynamic Reasoning Badge */}
-        {currentQ.reasoning && (
-          <div className="mb-4 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium shadow-xs">
-            <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-            <span>{currentQ.reasoning}</span>
-          </div>
-        )}
-
-        {/* Title & Audio */}
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <div>
-            <h3 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight">
-              {currentQ.title}
-            </h3>
-            {selectedLanguage !== 'en' && getQuestionRegionalSubtitle(currentQ, selectedLanguage) && (
-              <p className="text-base sm:text-lg text-indigo-700 mt-1 font-semibold">
-                {getQuestionRegionalSubtitle(currentQ, selectedLanguage)}
-              </p>
-            )}
-            {currentQ.subtitle && (
-              <p className="text-xs text-slate-500 mt-1">{currentQ.subtitle}</p>
-            )}
-          </div>
+      {/* Main Free-Text / Speech Input Console */}
+      <div className="stitch-card p-5 mb-5 shadow-sm border-2 border-indigo-100/80">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
+            <Brain className="w-4 h-4 text-indigo-600" />
+            <span>Voice &amp; Text Explanation (बोले या लिखें)</span>
+          </span>
 
           <button
-            onClick={handlePlayPrompt}
-            className="p-3 rounded-2xl bg-violet-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-700 transition shadow-sm shrink-0"
-            title="Read Question Aloud"
+            type="button"
+            onClick={toggleVoice}
+            className={`px-4 py-2 rounded-2xl font-bold text-xs flex items-center gap-2 transition shadow-sm ${
+              isListening
+                ? 'bg-rose-600 text-white animate-pulse'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            }`}
           >
-            <Volume2 className="w-5 h-5" />
+            {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            <span>{isListening ? 'Listening (सुन रहा है...)' : 'Speak (बोलकर बताएं)'}</span>
           </button>
         </div>
 
-        {/* Adapting / Thinking Banner */}
-        {isAdapting && (
-          <div className="mb-6 p-4 rounded-2xl bg-indigo-50/90 border border-indigo-200 flex items-center justify-center gap-3 animate-pulse text-indigo-900">
-            <Loader2 className="w-5 h-5 text-indigo-600 animate-spin" />
-            <span className="text-xs sm:text-sm font-semibold">
-              AI is analyzing your input and tailoring the next clinical question...
-            </span>
-          </div>
-        )}
-
-        {/* 2D Body Map Site Visualizer if site/radiation step */}
-        {(currentQ.step === 'site' || currentQ.step === 'radiation') && (
-          <div className="mb-6 p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-center justify-around gap-4">
-            <div className="text-center sm:text-left">
-              <span className="text-xs font-bold text-indigo-700 uppercase tracking-wider font-mono">
-                Interactive Anatomical Map
-              </span>
-              <p className="text-xs text-slate-600 mt-0.5">
-                Tap the pain epicenter on the body schema
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap justify-center">
-              <button
-                disabled={isAdapting}
-                onClick={() =>
-                  handleOptionSelect({
-                    label: 'Center of chest (Retrosternal)',
-                    code: 'retrosternal',
-                    isRed: true,
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold hover:bg-rose-100 transition shadow-xs disabled:opacity-50"
-              >
-                🫀 Retrosternal Chest
-              </button>
-              <button
-                disabled={isAdapting}
-                onClick={() =>
-                  handleOptionSelect({
-                    label: 'Left Arm & Shoulder',
-                    code: 'left_arm',
-                    isRed: true,
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold hover:bg-rose-100 transition shadow-xs disabled:opacity-50"
-              >
-                💪 Left Arm Radiation
-              </button>
-              <button
-                disabled={isAdapting}
-                onClick={() =>
-                  handleOptionSelect({
-                    label: 'Upper Epigastrium',
-                    code: 'epigastric',
-                    isRed: false,
-                  })
-                }
-                className="px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-bold hover:bg-amber-100 transition shadow-xs disabled:opacity-50"
-              >
-                🥗 Epigastric / Stomach
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Pain Scale (Wong-Baker + Numerical 0-10) */}
-        {currentQ.isPainScale ? (
-          <div className="space-y-6">
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-              {painFaces.map((f) => {
-                const isSelected = socrates.severity === f.score;
-                return (
-                  <div
-                    key={f.score}
-                    id={`pain-score-${f.score}`}
-                    onClick={() => !isAdapting && handlePainSeverity(f.score)}
-                    className={`p-3.5 rounded-2xl border-2 transition-all text-center flex flex-col items-center justify-between ${
-                      isAdapting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                    } ${
-                      isSelected
-                        ? 'stitch-card-active scale-105'
-                        : 'stitch-card hover:border-indigo-400'
-                    }`}
-                  >
-                    <span className="text-3xl select-none">{f.face}</span>
-                    <span className="text-lg font-black text-slate-900 mt-1 font-mono">
-                      {f.score}
-                    </span>
-                    <span className="text-[11px] font-bold text-slate-700 mt-0.5">
-                      {f.label}
-                    </span>
-                    {selectedLanguage !== 'en' && f.regional[selectedLanguage] && (
-                      <span className="text-[9px] text-indigo-700 font-medium">
-                        {f.regional[selectedLanguage]}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Slider backup */}
-            <div className="px-4">
-              <input
-                type="range"
-                min="0"
-                max="10"
-                disabled={isAdapting}
-                value={socrates.severity ?? 5}
-                onChange={(e) => handlePainSeverity(parseInt(e.target.value, 10))}
-                className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600 disabled:opacity-50"
-              />
-              <div className="flex justify-between text-xs text-slate-500 mt-2 font-mono">
-                <span>0 (No Pain)</span>
-                <span className="text-indigo-700 font-bold text-sm">
-                  Selected Severity: {socrates.severity ?? 'Not set'}/10
-                </span>
-                <span>10 (Maximum Pain)</span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Standard Multi / Single Choice Options */
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            {currentQ.options?.map((opt: any) => {
-              const stepKey = currentQ.step as keyof SocratesData;
-              let isSelected = false;
-              if (currentQ.isMultiSelect) {
-                isSelected = ((socrates[stepKey] as string[]) || []).includes(opt.label);
-              } else {
-                isSelected = socrates[stepKey] === opt.label;
+        {/* Text Area */}
+        <div className="relative">
+          <textarea
+            rows={4}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendInput();
               }
+            }}
+            placeholder={
+              isAyush
+                ? 'e.g. "I have lower back pain for 2 weeks. Digestion is slow with gas. No medicines taken. Pain is 6/10..."'
+                : 'e.g. "I have severe chest pain and left shoulder pain since yesterday. I took paracetamol. Pain score is 8/10 with sweating..."'
+            }
+            className="w-full p-4 rounded-2xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-slate-900 text-sm leading-relaxed resize-none shadow-inner"
+          />
 
-              return (
-                <div
-                  key={opt.code}
-                  id={`option-${opt.code}`}
-                  onClick={() => !isAdapting && handleOptionSelect(opt)}
-                  className={`p-4 rounded-2xl border-2 transition-all flex items-center justify-between ${
-                    isAdapting ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                  } ${
-                    isSelected
-                      ? opt.isRed
-                        ? 'bg-rose-50 border-rose-500 ring-2 ring-rose-500/20 text-rose-900 shadow-sm'
-                        : 'stitch-card-active'
-                      : 'stitch-card hover:border-indigo-400 text-slate-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black ${
-                        isSelected
-                          ? opt.isRed
-                            ? 'bg-rose-600 text-white shadow-xs'
-                            : 'bg-indigo-600 text-white shadow-xs'
-                          : 'bg-slate-100 text-slate-400'
-                      }`}
-                    >
-                      ✓
-                    </div>
-                    <div className="flex flex-col">
-                      <span className="text-sm font-semibold leading-snug text-slate-900">
-                        {opt.label}
-                      </span>
-                      {selectedLanguage !== 'en' && opt.labelRegional && (
-                        <span className="text-xs text-indigo-700 font-medium mt-0.5">
-                          {opt.labelRegional}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+          <div className="absolute right-3 bottom-3 flex items-center gap-2">
+            <button
+              type="button"
+              disabled={isAnalyzing || !inputText.trim()}
+              onClick={handleSendInput}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/20 disabled:opacity-50 transition"
+            >
+              {isAnalyzing ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+              <span>Analyze (विश्लेषण करें)</span>
+            </button>
+          </div>
+        </div>
 
-                  {opt.isRed && (
-                    <span className="px-2 py-0.5 rounded bg-rose-100 border border-rose-200 text-rose-800 text-[10px] font-mono font-bold uppercase shrink-0">
-                      Cardiac Flag
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+        {/* Live Transcript Display */}
+        {transcript && (
+          <div className="mt-3 p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+            <p className="text-[11px] font-mono font-bold text-slate-500 uppercase mb-1">
+              Live Accumulated Transcript:
+            </p>
+            <p className="text-xs text-slate-800 leading-relaxed font-medium">
+              "{transcript}"
+            </p>
           </div>
         )}
-
-        {/* Voice & Custom Input Controls */}
-        <div className="mt-6 pt-5 border-t border-slate-100 space-y-3">
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            {/* Voice STT Button */}
-            <button
-              id="voice-mic-btn"
-              onClick={toggleVoice}
-              disabled={isAdapting}
-              className={`p-3 rounded-2xl flex items-center justify-center gap-2 font-bold text-xs transition shadow-sm shrink-0 ${
-                isListening
-                  ? 'bg-rose-600 text-white animate-pulse ring-4 ring-rose-500/20'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-              } ${isAdapting ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              {isListening ? (
-                <>
-                  <MicOff className="w-4 h-4" />
-                  <span>
-                    {selectedLanguage === 'te' ? 'వింటున్నాము...' :
-                     selectedLanguage === 'ta' ? 'கேட்கிறோம்...' :
-                     selectedLanguage === 'kn' ? 'ಕೇಳುತ್ತಿದ್ದೇವೆ...' :
-                     selectedLanguage === 'ml' ? 'കേൾക്കുന്നു...' :
-                     selectedLanguage === 'mr' ? 'ऐकत आहोत...' :
-                     'Listening...'}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4 text-indigo-600" />
-                  <span>
-                    {selectedLanguage === 'te' ? 'వాయిస్ ద్వారా చెప్పండి' :
-                     selectedLanguage === 'ta' ? 'குரல் மூலம் பேசவும்' :
-                     selectedLanguage === 'kn' ? 'ಧ್ವನಿ ಮೂಲಕ ಹೇಳಿ' :
-                     selectedLanguage === 'ml' ? 'ശബ്ദത്തിൽ സംസാരിക്കുക' :
-                     selectedLanguage === 'mr' ? 'आवाजाने बोला' :
-                     'Speak (Mic)'}
-                  </span>
-                </>
-              )}
-            </button>
-
-            {/* Custom Input Bar */}
-            <div className="flex-1 flex items-center gap-2">
-              <input
-                type="text"
-                value={customInputText}
-                onChange={(e) => setCustomInputText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && customInputText.trim() && !isAdapting) {
-                    submitAnswer(customInputText);
-                  }
-                }}
-                placeholder={
-                  selectedLanguage === 'te' ? 'ఇక్కడ మీ స్వంత సమాధానం టైప్ చేయండి...' :
-                  selectedLanguage === 'ta' ? 'இங்கு உங்கள் பதிலை தட்டச்சு செய்க...' :
-                  selectedLanguage === 'kn' ? 'ನಿಮ್ಮ ಉತ್ತರವನ್ನು ಇಲ್ಲಿ ಬರೆಯಿರಿ...' :
-                  selectedLanguage === 'ml' ? 'നിങ്ങളുടെ മറുപടി ഇവിടെ ടൈപ്പ് ചെയ്യുക...' :
-                  selectedLanguage === 'mr' ? 'आपले उत्तर येथे टाईप करा...' :
-                  'Or type your answer in your own words...'
-                }
-                className="flex-1 px-4 py-2.5 rounded-2xl bg-white border border-slate-200 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition shadow-xs"
-                disabled={isAdapting}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (customInputText.trim() && !isAdapting) {
-                    submitAnswer(customInputText);
-                  }
-                }}
-                disabled={!customInputText.trim() || isAdapting}
-                className="p-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow-sm transition shrink-0"
-                title="Send Answer"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Active voice transcript display */}
-          {voiceTranscript && (
-            <div className="text-xs text-slate-600 italic bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-              "{voiceTranscript}"
-            </div>
-          )}
-        </div>
       </div>
 
+      {/* Missing Details Clarification Prompt (Only shown if a keyword is missing) */}
+      {nextFollowup && !allCovered && (
+        <div className="stitch-card p-5 mb-5 border-2 border-amber-300 bg-amber-50/40 shadow-sm animate-fadeIn">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <HelpCircle className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-[10px] font-mono font-bold text-amber-800 uppercase tracking-wider bg-amber-100 px-2 py-0.5 rounded">
+                Missing Clinical Detail
+              </span>
+              <h4 className="text-sm font-black text-slate-900 mt-1">
+                {nextFollowup.prompt}
+              </h4>
+              <p className="text-xs font-semibold text-indigo-800 mt-0.5">
+                {nextFollowup.promptRegional}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={followupAnswer}
+              onChange={(e) => setFollowupAnswer(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSendFollowup();
+              }}
+              placeholder="Speak or type your answer for this specific detail..."
+              className="flex-1 px-4 py-2.5 rounded-xl bg-white border border-amber-200 text-sm focus:border-amber-500 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={handleSendFollowup}
+              disabled={!followupAnswer.trim() || isAnalyzing}
+              className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition disabled:opacity-50"
+            >
+              {isAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              <span>Submit Detail</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* All Covered Celebration Banner */}
+      {allCovered && (
+        <div className="p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-400 text-emerald-900 mb-5 flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0" />
+            <div>
+              <p className="text-sm font-black text-emerald-950">
+                All 5 Essential Questions Covered! (सभी मुख्य बिंदु पूर्ण)
+              </p>
+              <p className="text-xs text-emerald-800">
+                Your clinical explanation is complete. Ready to proceed immediately to family history.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onComplete}
+            className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition whitespace-nowrap active:scale-95"
+          >
+            <span>Auto-Advance →</span>
+          </button>
+        </div>
+      )}
+
       {/* Navigation Buttons */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 pt-2">
         <button
-          onClick={handlePrev}
-          disabled={isAdapting}
-          className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm disabled:opacity-50"
+          onClick={onBack}
+          className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>{currentQIndex === 0 ? 'Back to Complaints' : 'Previous Question'}</span>
+          <span>Back to Complaint</span>
         </button>
 
         <button
-          id="socrates-next-btn"
-          onClick={handleNext}
-          disabled={isAdapting}
-          className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98 disabled:opacity-50"
+          id="converse-continue-btn"
+          onClick={onComplete}
+          className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98"
         >
           <span>
-            {currentQ.isFinal || answeredCount >= 6 ? 'Proceed to Next Stage' : 'Next Question'}
+            {allCovered ? 'Proceed to Next Step' : 'Confirm & Proceed to Next Step'}
           </span>
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>

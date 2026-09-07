@@ -452,7 +452,20 @@ CREATE TABLE staff_actions (
   entity_id       VARCHAR(36),
   description     TEXT,
   ip_address      VARCHAR(45),
-  created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+-- ----------------------------------------------------------
+-- 23. Doctor Prescriptions
+-- ----------------------------------------------------------
+DROP TABLE IF EXISTS prescriptions;
+CREATE TABLE prescriptions (
+  id VARCHAR(36) PRIMARY KEY,
+  encounter_id VARCHAR(36),
+  patient_id VARCHAR(36) NOT NULL,
+  prescribed_by VARCHAR(255) NOT NULL,
+  doctor_department VARCHAR(100),
+  medications_json JSON NOT NULL,
+  instructions TEXT,
+  issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_prescriptions_patient (patient_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------------------------------------

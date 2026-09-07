@@ -9,6 +9,7 @@ interface ConsentScreenProps {
   onUpdateConsent: (consent: ConsentSettings) => void;
   onContinue: () => void;
   onBack: () => void;
+  onGoToSummary?: () => void;
   selectedLanguage: LanguageCode;
   isAudioNarration: boolean;
 }
@@ -18,6 +19,7 @@ export const ConsentScreen: React.FC<ConsentScreenProps> = ({
   onUpdateConsent,
   onContinue,
   onBack,
+  onGoToSummary,
   selectedLanguage,
   isAudioNarration,
 }) => {
@@ -296,28 +298,41 @@ export const ConsentScreen: React.FC<ConsentScreenProps> = ({
       </div>
 
       {/* Navigation Buttons */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <button
           onClick={onBack}
-          className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
+          className="w-full sm:w-auto py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center justify-center gap-2 transition shadow-sm"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Change Language</span>
         </button>
 
-        <button
-          id="consent-confirm-btn"
-          disabled={!canProceed}
-          onClick={onContinue}
-          className={`py-4 px-8 rounded-2xl font-black text-base flex items-center gap-3 transition-all ${
-            canProceed
-              ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-lg shadow-indigo-600/25 active:scale-98'
-              : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-          }`}
-        >
-          <span>I Agree & Proceed (सहमति देकर आगे बढ़ें)</span>
-          <ArrowRight className="w-5 h-5 stroke-[2.5]" />
-        </button>
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          {onGoToSummary && (
+            <button
+              id="consent-summary-btn"
+              type="button"
+              onClick={onGoToSummary}
+              className="py-3.5 px-5 rounded-2xl bg-slate-100 hover:bg-indigo-50 border border-slate-300 text-slate-700 hover:text-indigo-700 font-bold text-xs sm:text-sm flex items-center gap-2 transition shadow-xs"
+            >
+              <span>Summary Page →</span>
+            </button>
+          )}
+
+          <button
+            id="consent-confirm-btn"
+            disabled={!canProceed}
+            onClick={onContinue}
+            className={`py-4 px-8 rounded-2xl font-black text-base flex items-center justify-center gap-3 transition-all ${
+              canProceed
+                ? 'bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white shadow-lg shadow-indigo-600/25 active:scale-98'
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            <span>I Agree & Proceed</span>
+            <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -125,16 +125,35 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
   const [personal, setPersonal] = useState<PersonalHistory>(historyObject.personalHistory || DEFAULT_PERSONAL);
   const [obstetrics, setObstetrics] = useState({ pregnancies: 0, deliveries: 0, miscarriages: 0 });
   const [occupation, setOccupation] = useState(personal.occupation || '');
-  const [noneFamily, setNoneFamily] = useState(false);
+  const [noneFamily, setNoneFamily] = useState(Boolean(historyObject.familyHistory?.noSignificantFamilyHistory));
 
   const toggleFamily = (key: keyof FamilyHistory) => {
     setNoneFamily(false);
-    setFamily(prev => ({ ...prev, [key]: !prev[key] }));
+    setFamily(prev => ({
+      ...prev,
+      [key]: !prev[key],
+      noSignificantFamilyHistory: false,
+    }));
   };
 
   const handleNoneFamily = () => {
-    setNoneFamily(true);
-    setFamily(DEFAULT_FAMILY);
+    const nextVal = !noneFamily;
+    setNoneFamily(nextVal);
+    if (nextVal) {
+      // Deselect all other disease cases immediately
+      setFamily({
+        diabetes: false,
+        hypertension: false,
+        heartDisease: false,
+        cancer: false,
+        kidneyDisease: false,
+        thyroid: false,
+        other: '',
+        noSignificantFamilyHistory: true,
+      });
+    } else {
+      setFamily(prev => ({ ...prev, noSignificantFamilyHistory: false }));
+    }
   };
 
   const handleContinue = () => {
@@ -186,7 +205,29 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
             'Immediate family conditions'
           })
         </h3>
-        <p className="text-xs text-slate-500 mb-4">Select all conditions present in immediate family members</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+          <p className="text-xs text-slate-500">Select all conditions present in immediate family members</p>
+          <button
+            type="button"
+            onClick={handleNoneFamily}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 border shadow-xs ${
+              noneFamily
+                ? 'bg-emerald-600 text-white border-emerald-600 ring-2 ring-emerald-500/20'
+                : 'bg-white border-slate-300 text-slate-700 hover:border-emerald-500 hover:text-emerald-700'
+            }`}
+          >
+            {noneFamily ? <CheckSquare className="w-4 h-4 text-white" /> : <Square className="w-4 h-4 text-slate-400" />}
+            <span>
+              {selectedLanguage === 'ta' ? 'குடும்பத்தில் குறிப்பிடத்தக்க வரலாறு இல்லை' :
+               selectedLanguage === 'te' ? 'కుటుంబంలో ముఖ్యమైన చరిత్ర లేదు (ఏదీ లేదు)' :
+               selectedLanguage === 'kn' ? 'ಕುಟುಂಬದಲ್ಲಿ ಯಾವುದೇ ಗಂಭೀರ ಕಾಯಿಲೆಯ ಇತಿಹಾಸವಿಲ್ಲ' :
+               selectedLanguage === 'ml' ? 'കുടുംബത്തിൽ കാര്യമായ രോഗചരിത്രമില്ല' :
+               selectedLanguage === 'mr' ? 'कुटुंबात कोणताही गंभीर आजार नाही' :
+               'No significant family history'}
+            </span>
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
           {FAMILY_CONDITIONS.map(fc => {
             const isOn = family[fc.key] as boolean;
@@ -212,14 +253,6 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
             );
           })}
         </div>
-        <button
-          onClick={handleNoneFamily}
-          className={`px-4 py-2 rounded-xl text-xs font-bold transition border ${
-            noneFamily ? 'bg-violet-50 border-indigo-400 text-indigo-800' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-400'
-          }`}
-        >
-          ✓ {selectedLanguage === 'ta' ? 'குடும்பத்தில் குறிப்பிடத்தக்க வரலாறு இல்லை' : selectedLanguage === 'te' ? 'కుటుంబంలో ముఖ్యమైన చరిత్ర లేదు' : selectedLanguage === 'kn' ? 'ಕುಟುಂಬದಲ್ಲಿ ಯಾವುದೇ ಗಂಭೀರ ಕಾಯಿಲೆಯ ಇತಿಹಾಸವಿಲ್ಲ' : selectedLanguage === 'ml' ? 'കുടുംബത്തിൽ കാര്യമായ രോഗചരിത്രമില്ല' : selectedLanguage === 'mr' ? 'कुटुंबात कोणताही गंभीर आजार नाही' : 'No significant family history'}
-        </button>
       </div>
 
       {/* Personal / Social History */}

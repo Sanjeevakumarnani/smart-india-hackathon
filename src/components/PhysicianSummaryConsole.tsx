@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   RefreshCw,
   MessageCircle,
+  Download,
 } from 'lucide-react';
 import {
   ClinicalSummary,
@@ -23,6 +24,7 @@ import {
 import { generateClinicalSummary, pushFhirToAbdm, logPhysicianCorrection } from '../services/geminiService';
 import { generateFhirR4Bundle } from '../services/fhirGenerator';
 import { broadcastManager } from '../services/broadcastChannel';
+import { generateClinicalReportPdf } from '../services/pdfService';
 
 interface PhysicianSummaryConsoleProps {
   patientProfile: PatientProfile | null;
@@ -177,6 +179,16 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
     }
   };
 
+  const handleDownloadPdf = () => {
+    generateClinicalReportPdf({
+      patientProfile,
+      historyObject,
+      documents,
+      summary,
+      createdToken,
+    });
+  };
+
   const hasRedFlags =
     (historyObject.redFlags && historyObject.redFlags.length > 0) ||
     documents.some((d) => d.labValues.some((l) => l.status.includes('CRITICAL')));
@@ -248,7 +260,15 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
               className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 border border-slate-200 flex items-center gap-1.5 transition shadow-sm active:scale-95"
             >
               <Printer className="w-4 h-4 text-indigo-600" />
-              <span>Print Official Case Sheet</span>
+              <span>Print</span>
+            </button>
+
+            <button
+              onClick={handleDownloadPdf}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-xs font-bold text-white flex items-center gap-1.5 transition shadow-sm active:scale-95"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF Report</span>
             </button>
 
             <button

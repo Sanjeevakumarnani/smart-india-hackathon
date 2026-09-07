@@ -16,9 +16,11 @@ import {
   FileText,
   RefreshCw,
   Sparkles,
+  Pill,
 } from 'lucide-react';
 import { QueueToken, PatientProfile, HistoryObject, DigitizedDocument, LanguageCode } from '../types';
 import { PhysicianSummaryConsole } from './PhysicianSummaryConsole';
+import { PrescriptionPanel } from './PrescriptionPanel';
 import { AuthUser } from './StaffLoginScreen';
 
 interface DoctorConsolePageProps {
@@ -42,7 +44,7 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
   onOpenWhatsApp,
   createdToken,
 }) => {
-  const [activeTab, setActiveTab] = useState<'queue' | 'console'>('queue');
+  const [activeTab, setActiveTab] = useState<'queue' | 'console' | 'prescriptions'>('queue');
   const [queueTokens, setQueueTokens] = useState<QueueToken[]>([]);
   const [isLoadingQueue, setIsLoadingQueue] = useState(false);
   const [selectedToken, setSelectedToken] = useState<QueueToken | null>(null);
@@ -207,6 +209,18 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
             >
               <FileText className="w-4 h-4" />
               <span>Clinical Summary Console</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('prescriptions')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeTab === 'prescriptions'
+                  ? 'bg-teal-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+              }`}
+            >
+              <Pill className="w-4 h-4" />
+              <span>Prescriptions &amp; Rx</span>
             </button>
           </div>
 
@@ -428,6 +442,16 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
             />
 
           </div>
+        )}
+
+        {activeTab === 'prescriptions' && (
+          <PrescriptionPanel
+            patientProfile={loadedPatientProfile || activePatientProfile}
+            historyObject={loadedHistory || activeHistory}
+            selectedLanguage={selectedLanguage}
+            doctorName={currentUser.fullName || 'Dr. Priya Sharma (MD)'}
+            doctorDepartment={currentUser.department || 'General Medicine & AYUSH OPD'}
+          />
         )}
       </main>
 

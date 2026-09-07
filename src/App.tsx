@@ -421,6 +421,7 @@ export function App() {
             onUpdateConsent={(c) => setConsent(c)}
             onContinue={() => setCurrentStep('IDENTITY')}
             onBack={() => setCurrentStep('LANGUAGE')}
+            onGoToSummary={() => setCurrentStep('PHYSICIAN_CONSOLE')}
             selectedLanguage={selectedLanguage}
             isAudioNarration={isAudioNarration}
           />

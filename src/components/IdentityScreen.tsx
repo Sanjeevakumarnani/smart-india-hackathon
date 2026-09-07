@@ -311,18 +311,7 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   const [isListeningVoice, setIsListeningVoice] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
 
-  // ── Universal Quick Registration Modal ─────
-  const [showRegisterModal, setShowRegisterModal] = useState(false);
-  const [regFullName, setRegFullName] = useState('');
-  const [regAge, setRegAge] = useState('');
-  const [regGender, setRegGender] = useState<'Male' | 'Female' | 'Other'>('Male');
-  const [regPhone, setRegPhone] = useState('');
-  const [regAbha, setRegAbha] = useState('');
-  const [regAadhaar, setRegAadhaar] = useState('');
-  const [regCity, setRegCity] = useState('');
-  const [regBloodGroup, setRegBloodGroup] = useState('O+');
-  const [isSubmittingReg, setIsSubmittingReg] = useState(false);
-  const [regError, setRegError] = useState<string | null>(null);
+
 
   // ── Walk-in ABHA creation ──────────────────
   const [showAbhaCreation, setShowAbhaCreation] = useState(false);
@@ -771,93 +760,7 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
     }
   };
 
-  // ─────────────────────────────────────────────
-  // Universal Quick Registration Handler
-  // ─────────────────────────────────────────────
 
-  const openRegisterModalWithIdentifier = (suggestedIdentifier?: string) => {
-    const raw = (suggestedIdentifier || searchedAbha || abhaInput || aadhaarInput || mobileInput || '').trim();
-    const cleanDigits = raw.replace(/\D/g, '');
-
-    if (cleanDigits.length === 14 || raw.includes('@')) {
-      setRegAbha(raw);
-    } else if (cleanDigits.length === 12) {
-      setRegAadhaar(cleanDigits);
-    } else if (cleanDigits.length === 10) {
-      setRegPhone(cleanDigits);
-    }
-
-    setRegError(null);
-    setShowRegisterModal(true);
-  };
-
-  const handleQuickRegisterSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!regFullName.trim()) {
-      setRegError('Full Name is required.');
-      return;
-    }
-    const ageNum = parseInt(regAge, 10);
-    if (isNaN(ageNum) || ageNum <= 0 || ageNum > 125) {
-      setRegError('Please enter a valid age between 1 and 125.');
-      return;
-    }
-
-    setIsSubmittingReg(true);
-    setRegError(null);
-
-    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const newId = `PAT-${Date.now().toString(36).toUpperCase().slice(-4)}${randomSuffix}`;
-
-    const cleanPhone = regPhone.replace(/\D/g, '').slice(-10);
-    const formattedPhone = cleanPhone ? `+91${cleanPhone}` : '';
-    const cleanAadhaar = regAadhaar.replace(/\D/g, '').slice(0, 12);
-    const cleanAbha = regAbha.trim();
-
-    const payload = {
-      id: newId,
-      fullName: regFullName.trim(),
-      age: ageNum,
-      gender: regGender,
-      phone: formattedPhone,
-      abhaId: cleanAbha || undefined,
-      aadhaarNumber: cleanAadhaar || undefined,
-      aadhaarLast4: cleanAadhaar ? cleanAadhaar.slice(-4) : undefined,
-      city: regCity.trim(),
-      bloodGroup: regBloodGroup,
-    };
-
-    try {
-      const res = await fetch('/api/patients', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to save patient in database.');
-      }
-
-      const createdRecord = data.patient || payload;
-      const profile = toPatientProfile(createdRecord);
-      onSelectProfile(profile);
-
-      // Sync local field displays
-      setCustomName(profile.fullName);
-      setCustomAge(String(profile.age));
-      setCustomGender(profile.gender as 'Male' | 'Female' | 'Other');
-      if (profile.phone) setCustomPhone(profile.phone);
-      if (profile.abhaId) setAbhaInput(formatAbhaNumber(profile.abhaId));
-
-      setAbhaWelcomeName(profile.fullName);
-      setAbhaNotFound(false);
-      setShowRegisterModal(false);
-    } catch (err: any) {
-      setRegError(err.message || 'Error registering patient.');
-    } finally {
-      setIsSubmittingReg(false);
-    }
-  };
 
   const handleAbhaSubmit = async () => {
     if (patientProfile) {
@@ -1041,14 +944,17 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
                     </div>
 
                     <div className="pt-3 border-t border-amber-200/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                      {/* Direct Create Account Button */}
+                      {/* Mobile Alternative Option */}
                       <button
                         type="button"
-                        onClick={() => openRegisterModalWithIdentifier(searchedAbha || abhaInput)}
-                        className="flex-1 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-black text-xs flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20 transition text-center"
+                        onClick={() => {
+                          setActiveTab('MOBILE');
+                          setGlobalError(null);
+                        }}
+                        className="flex-1 px-4 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition text-center"
                       >
-                        <UserPlus className="w-4 h-4" />
-                        <span>Account Not Found — Create It Now</span>
+                        <Phone className="w-4 h-4" />
+                        <span>Try Mobile Number Instead</span>
                       </button>
 
                       {/* Redirect Link to official ABHA Creation */}
@@ -1056,10 +962,10 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
                         href={`https://healthid.abdm.gov.in/register?redirect_url=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '')}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm transition text-center whitespace-nowrap"
+                        className="px-4 py-3 rounded-2xl bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition text-center whitespace-nowrap"
                       >
                         <ExternalLink className="w-4 h-4" />
-                        <span>ABDM Portal Link</span>
+                        <span>Official ABDM Portal</span>
                       </a>
 
                       {/* Mobile Alternative Option */}
@@ -1479,194 +1385,7 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
 
       </AnimatePresence>
 
-      {/* ── Global "Create New Account for All" Option Bar ── */}
-      <div className="mt-5 p-4 rounded-3xl bg-gradient-to-r from-violet-50 via-indigo-50/70 to-slate-50 border-2 border-dashed border-indigo-200 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-            <UserPlus className="w-5 h-5" />
-          </div>
-          <div>
-            <h4 className="text-sm font-black text-slate-900">
-              Direct Intake: Don't have an ABHA or Government ID yet?
-            </h4>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Instant walk-in registration. We'll generate a unique hospital Patient ID and store all your records.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => openRegisterModalWithIdentifier()}
-          className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 transition whitespace-nowrap active:scale-95"
-        >
-          <UserPlus className="w-4 h-4" />
-          <span>Create New Account</span>
-        </button>
-      </div>
 
-      {/* ── Universal Quick Registration Modal ── */}
-      <AnimatePresence>
-        {showRegisterModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 16 }}
-              className="w-full max-w-lg bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]"
-            >
-              {/* Modal Header */}
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-indigo-50/60 to-white">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center font-bold shadow-sm">
-                    <HeartPulse className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-black text-slate-900">Patient Registration</h3>
-                    <p className="text-xs text-slate-500">Auto-assigns unique Patient ID & saves in database</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowRegisterModal(false)}
-                  className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-
-              {/* Modal Form Content */}
-              <form onSubmit={handleQuickRegisterSubmit} className="p-6 overflow-y-auto space-y-4">
-                <ErrorBanner message={regError} onDismiss={() => setRegError(null)} />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div className="sm:col-span-2">
-                    <Field label="Full Name" required>
-                      <input
-                        type="text"
-                        required
-                        value={regFullName}
-                        onChange={(e) => setRegFullName(e.target.value)}
-                        placeholder="Patient's legal full name"
-                        className={inputClass}
-                      />
-                    </Field>
-                  </div>
-
-                  <div>
-                    <Field label="Age" required>
-                      <input
-                        type="number"
-                        required
-                        min={1}
-                        max={120}
-                        value={regAge}
-                        onChange={(e) => setRegAge(e.target.value)}
-                        placeholder="e.g. 45"
-                        className={inputClass}
-                      />
-                    </Field>
-                  </div>
-
-                  <div>
-                    <Field label="Gender" required>
-                      <select
-                        value={regGender}
-                        onChange={(e) => setRegGender(e.target.value as any)}
-                        className={selectClass}
-                      >
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </Field>
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <Field label="Mobile Number">
-                      <input
-                        type="tel"
-                        value={regPhone}
-                        onChange={(e) => setRegPhone(e.target.value)}
-                        placeholder="10-digit mobile number"
-                        className={inputClass + ' font-mono'}
-                      />
-                    </Field>
-                  </div>
-
-                  <div>
-                    <Field label="Blood Group">
-                      <select
-                        value={regBloodGroup}
-                        onChange={(e) => setRegBloodGroup(e.target.value)}
-                        className={selectClass}
-                      >
-                        {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((bg) => (
-                          <option key={bg} value={bg}>{bg}</option>
-                        ))}
-                      </select>
-                    </Field>
-                  </div>
-
-                  <div>
-                    <Field label="City / Town">
-                      <input
-                        type="text"
-                        value={regCity}
-                        onChange={(e) => setRegCity(e.target.value)}
-                        placeholder="e.g. Delhi"
-                        className={inputClass}
-                      />
-                    </Field>
-                  </div>
-
-                  <div>
-                    <Field label="ABHA Health ID (Optional)">
-                      <input
-                        type="text"
-                        value={regAbha}
-                        onChange={(e) => setRegAbha(e.target.value)}
-                        placeholder="XX-XXXX-XXXX-XXXX"
-                        className={inputClass + ' font-mono text-xs'}
-                      />
-                    </Field>
-                  </div>
-
-                  <div>
-                    <Field label="Aadhaar (Optional)">
-                      <input
-                        type="text"
-                        maxLength={12}
-                        value={regAadhaar}
-                        onChange={(e) => setRegAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                        placeholder="12-digit Aadhaar"
-                        className={inputClass + ' font-mono text-xs'}
-                      />
-                    </Field>
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowRegisterModal(false)}
-                    className="px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSubmittingReg}
-                    className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-black flex items-center gap-2 shadow-md shadow-indigo-600/20 transition disabled:opacity-50"
-                  >
-                    {isSubmittingReg ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    Save & Generate Patient ID
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* ── Verified Profile Banner ──────────── */}
       <AnimatePresence>

@@ -99,6 +99,13 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
     }
   };
 
+  const handleCardClick = (id: string, title: string) => {
+    onSelectComplaint(id, title);
+    setTimeout(() => {
+      onContinue();
+    }, 200);
+  };
+
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6">
       {/* Title Header */}
@@ -176,7 +183,7 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
               <div
                 key={comp.id}
                 id={`complaint-card-${comp.id}`}
-                onClick={() => onSelectComplaint(comp.id, comp.title)}
+                onClick={() => handleCardClick(comp.id, comp.title)}
                 className={`p-5 rounded-3xl border-2 cursor-pointer transition-all duration-200 flex flex-col justify-between relative shadow-sm active:scale-98 ${
                   isSelected
                     ? 'stitch-card-active scale-[1.02]'
