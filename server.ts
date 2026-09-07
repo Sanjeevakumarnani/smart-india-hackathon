@@ -1789,6 +1789,405 @@ Return JSON:
 });
 
 // ──────────────────────────────────────────────
+// Dynamic Adaptive Clinical Conversation Engine
+// ──────────────────────────────────────────────
+app.post('/api/converse/adaptive-question', async (req, res) => {
+  try {
+    const {
+      complaintId,
+      chiefComplaint = 'Consultation Intake',
+      conversationHistory = [],
+      socrates = {},
+      redFlags = [],
+      selectedLanguage = 'en',
+      lastAnswer = '',
+      stepIndex = 0,
+    } = req.body;
+
+    const lowerAns = (lastAnswer || '').toLowerCase();
+    const newRedFlags: string[] = [];
+    const extractedAttributes: Record<string, any> = {};
+
+    // 1. Immediate Rule-Based Red Flag & Clinical Attribute Sniffing
+    if (lowerAns.includes('left arm') || lowerAns.includes('jaw') || lowerAns.includes('shoulder')) {
+      newRedFlags.push('Cardiac Radiation: Pain extending to left arm / shoulder / jaw');
+      extractedAttributes.radiation = 'Left arm & jaw radiation';
+    }
+    if (lowerAns.includes('crushing') || lowerAns.includes('heavy pressure') || lowerAns.includes('squeezing')) {
+      newRedFlags.push('High-Risk Sensation: Compressive crushing chest discomfort');
+      extractedAttributes.character = 'Crushing compressive pressure';
+    }
+    if (lowerAns.includes('sweat') || lowerAns.includes('diaphoresis') || lowerAns.includes('cold sweat')) {
+      newRedFlags.push('Autonomic Distress: Profuse diaphoresis with acute onset');
+      extractedAttributes.associations = ['Profuse cold sweating'];
+    }
+    if (lowerAns.includes('shortness of breath') || lowerAns.includes('cannot breathe') || lowerAns.includes('breathless') || lowerAns.includes('gasping')) {
+      newRedFlags.push('Respiratory Alert: Acute breathlessness (air hunger)');
+      extractedAttributes.associations = [...(extractedAttributes.associations || []), 'Shortness of breath'];
+    }
+    if (lowerAns.includes('thunderclap') || lowerAns.includes('worst headache') || lowerAns.includes('sudden explosion')) {
+      newRedFlags.push('Neurological Warning: Thunderclap headache onset pattern');
+      extractedAttributes.onset = 'Sudden thunderclap within seconds';
+    }
+    if (lowerAns.includes('rigid') || lowerAns.includes('rock hard') || lowerAns.includes('unbearable stomach')) {
+      newRedFlags.push('Acute Abdomen Alert: Peritoneal rigidity suspected');
+      extractedAttributes.character = 'Severe acute rigidity';
+    }
+
+    const ai = getGeminiClient();
+
+    // 2. Try Gemini 2.5 Flash Dynamic Generation
+    if (ai) {
+      try {
+        const historySummary = conversationHistory
+          .slice(-6)
+          .map((h: any) => `${h.speaker === 'kiosk' ? 'Doctor/Kiosk' : 'Patient'}: ${h.text}`)
+          .join('\n');
+
+        const prompt = `You are an expert AI OPD triage physician at a smart hospital kiosk in India.
+Follow the SOCRATES protocol (Site, Onset, Character, Radiation, Associations, Timing, Exacerbating/Relieving, Severity).
+Chief Complaint: ${chiefComplaint} (${complaintId})
+Patient Selected Language: ${selectedLanguage} (Options: en, te, ta, kn, ml, mr)
+Current Step Index: ${stepIndex}
+Accumulated Clinical Attributes: ${JSON.stringify({ ...socrates, ...extractedAttributes })}
+Active Red Flags: ${JSON.stringify([...redFlags, ...newRedFlags])}
+Recent Dialogue:
+${historySummary}
+
+Patient's latest answer/input: "${lastAnswer}"
+
+YOUR GOAL:
+Dynamically generate the NEXT logical clinical follow-up question directly tailored to what the patient just reported.
+- Do NOT repeat questions the patient has already answered.
+- If the patient reported chest or arm discomfort, probe for cardiac red flags (sweats, radiation, breathlessness).
+- If the patient reported digestive discomfort, probe for meal relation, burning, nausea, or localized tenderness.
+- If stepIndex >= 5 or if core symptoms are fully characterized, transition to pain severity (0-10) with isPainScale: true, or set isFinal: true if triage is complete.
+- Provide "reasoning" (one sentence explaining to the patient why this question is being asked based on their last answer).
+- "title": Question in English.
+- "titleRegional": Question accurately translated into the patient's selected language (${selectedLanguage}).
+- "options": 3 to 4 context-specific, distinct options for this question. Each option must have label (English), labelRegional (in ${selectedLanguage}), code (snake_case), and isRed (boolean if dangerous).
+
+Return STRICTLY JSON format:
+{
+  "question": {
+    "id": "dyn_q_${Date.now()}",
+    "step": "site" | "onset" | "character" | "radiation" | "associations" | "timing" | "exacerbating" | "severity" | "followup",
+    "title": string,
+    "titleRegional": string,
+    "subtitle": string,
+    "reasoning": string,
+    "options": [
+      { "label": string, "labelRegional": string, "code": string, "isRed": boolean }
+    ],
+    "isPainScale": boolean,
+    "isMultiSelect": boolean,
+    "isFinal": boolean
+  },
+  "extractedAttributes": {
+    "site": string | null,
+    "onset": string | null,
+    "character": string | null,
+    "radiation": string | null,
+    "associations": string[] | null,
+    "timing": string | null,
+    "exacerbating": string | null,
+    "relieving": string | null,
+    "severity": number | null
+  },
+  "newRedFlags": string[]
+}`;
+
+        const result = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: prompt,
+          config: {
+            responseMimeType: 'application/json',
+          },
+        });
+
+        const rawJson = result.text?.trim() || '{}';
+        const parsed = JSON.parse(rawJson);
+
+        if (parsed.question && parsed.question.title) {
+          const mergedRedFlags = Array.from(
+            new Set([...newRedFlags, ...(parsed.newRedFlags || [])])
+          );
+          const mergedAttributes = {
+            ...extractedAttributes,
+            ...(parsed.extractedAttributes || {}),
+          };
+
+          return res.json({
+            success: true,
+            question: parsed.question,
+            extractedAttributes: mergedAttributes,
+            newRedFlags: mergedRedFlags,
+            source: 'gemini-adaptive',
+          });
+        }
+      } catch (geminiErr) {
+        console.warn('[Adaptive Converse] Gemini generation fallback:', geminiErr);
+      }
+    }
+
+    // 3. Fallback Adaptive Clinical Rule Engine (Offline / API key missing)
+    let dynamicStep: any = 'character';
+    let titleEn = 'How would you describe the sensation or feeling of this discomfort?';
+    let reasoning = lastAnswer ? `Tailoring assessment to your previous response: "${lastAnswer.slice(0, 40)}..."` : 'Gathering baseline diagnostic details';
+    let options: any[] = [];
+    let isPainScale = false;
+    let isFinal = false;
+
+    // Adaptive branch for Chest / Cardiovascular
+    if (complaintId === 'chest_pain' || lowerAns.includes('chest') || lowerAns.includes('heart')) {
+      if (lowerAns.includes('left') || lowerAns.includes('center') || socrates.site) {
+        if (!socrates.radiation && !extractedAttributes.radiation) {
+          dynamicStep = 'radiation';
+          titleEn = 'Does this chest discomfort spread or shoot anywhere into your arm, neck, or back?';
+          reasoning = 'Checking for cardiovascular radiation pathways based on chest location';
+          options = [
+            { label: 'Yes, spreads to left arm, shoulder, or jaw', code: 'left_arm_jaw', isRed: true },
+            { label: 'Yes, travels straight through to the back', code: 'back_scapula', isRed: true },
+            { label: 'Yes, upwards into the throat or neck', code: 'throat_neck', isRed: true },
+            { label: 'No, it stays strictly in the chest without spreading', code: 'localized_only', isRed: false },
+          ];
+        } else if (!socrates.associations || socrates.associations.length === 0) {
+          dynamicStep = 'associations';
+          titleEn = 'Are you experiencing any sweating, breathlessness, or nausea right now?';
+          reasoning = 'Assessing autonomic distress following your reported sensation';
+          options = [
+            { label: 'Heavy cold sweating (diaphoresis)', code: 'cold_sweat', isRed: true },
+            { label: 'Shortness of breath / difficulty catching breath', code: 'dyspnea', isRed: true },
+            { label: 'Nausea or lightheaded dizziness', code: 'nausea_dizzy', isRed: true },
+            { label: 'None of these associated symptoms', code: 'none_assoc', isRed: false },
+          ];
+        } else if (stepIndex >= 4 || socrates.character) {
+          dynamicStep = 'severity';
+          titleEn = 'On a scale from 0 to 10, how severe is this chest pain right now?';
+          reasoning = 'Quantifying pain severity for triage priority assignment';
+          isPainScale = true;
+          isFinal = stepIndex >= 5;
+        } else {
+          dynamicStep = 'exacerbating';
+          titleEn = 'What happens to the pain when you walk, exert yourself, or rest?';
+          reasoning = 'Evaluating exertional ischemia correlation';
+          options = [
+            { label: 'Worsens with physical movement, eases with complete rest', code: 'exertion_angina', isRed: true },
+            { label: 'Does NOT ease with rest — stays continuously intense', code: 'constant_unrelieved', isRed: true },
+            { label: 'Worsens with deep breaths or coughing', code: 'pleuritic', isRed: false },
+            { label: 'Improves after drinking water or antacids', code: 'acid_relief', isRed: false },
+          ];
+        }
+      } else {
+        dynamicStep = 'site';
+        titleEn = 'Where in your chest is the pain primarily centered?';
+        reasoning = 'Localizing the primary focus of chest discomfort';
+        options = [
+          { label: 'Directly behind the breastbone (retrosternal)', code: 'retrosternal', isRed: true },
+          { label: 'Left side of the chest over the ribs', code: 'left_chest', isRed: true },
+          { label: 'Upper abdomen just below ribs (epigastric)', code: 'epigastric', isRed: false },
+          { label: 'Right side of the chest', code: 'right_chest', isRed: false },
+        ];
+      }
+    }
+    // Adaptive branch for Stomach / Abdominal
+    else if (complaintId === 'stomach_digestive' || lowerAns.includes('stomach') || lowerAns.includes('abdomen') || lowerAns.includes('belly')) {
+      if (lowerAns.includes('burn') || lowerAns.includes('acid') || lowerAns.includes('meal')) {
+        dynamicStep = 'exacerbating';
+        titleEn = 'Does the stomach pain occur immediately after eating, or when your stomach is empty?';
+        reasoning = 'Differentiating peptic ulcer and gastroesophageal reflux patterns';
+        options = [
+          { label: 'Worse right after spicy or oily meals (Annadrava Shula)', code: 'post_meal_acid', isRed: false },
+          { label: 'Worse on an empty stomach or late at night (Parinama Shula)', code: 'empty_stomach_acid', isRed: false },
+          { label: 'Constant intense burning with severe nausea', code: 'constant_gastritis', isRed: false },
+          { label: 'Relieved immediately after antacids or cold milk', code: 'antacid_relief', isRed: false },
+        ];
+      } else if (lowerAns.includes('right') || lowerAns.includes('lower')) {
+        dynamicStep = 'associations';
+        titleEn = 'Is there any fever, vomiting, or sharp pain when walking or touching the area?';
+        reasoning = 'Checking for acute appendicitis or peritoneal irritation';
+        options = [
+          { label: 'Sharp pain when pressing or letting go (rebound tenderness)', code: 'rebound_tenderness', isRed: true },
+          { label: 'Fever with chills and repeated vomiting', code: 'fever_vomiting', isRed: true },
+          { label: 'Loose watery motions or gas cramps', code: 'diarrhea_cramps', isRed: false },
+          { label: 'Pain during urination or cloudy urine', code: 'urinary_symptoms', isRed: false },
+        ];
+      } else if (stepIndex >= 4) {
+        dynamicStep = 'severity';
+        titleEn = 'Please rate the intensity of this stomach discomfort from 0 to 10:';
+        reasoning = 'Assessing clinical discomfort severity for physician triage';
+        isPainScale = true;
+        isFinal = true;
+      } else {
+        dynamicStep = 'character';
+        titleEn = 'What kind of feeling is present in your abdomen?';
+        reasoning = 'Categorizing abdominal pain mechanism (cramping vs sharp vs bloated)';
+        options = [
+          { label: 'Twisting colicky spasms that come and go in waves', code: 'colic_cramps', isRed: false },
+          { label: 'Persistent burning sensation rising into chest', code: 'heartburn_acid', isRed: false },
+          { label: 'Heavy bloating and excessive gas (Aadhmana)', code: 'bloating_gas', isRed: false },
+          { label: 'Severe continuous sharp localized ache', code: 'sharp_continuous', isRed: true },
+        ];
+      }
+    }
+    // Adaptive branch for Headache / Neurological
+    else if (complaintId === 'headache' || complaintId === 'headache_neuro' || lowerAns.includes('head') || lowerAns.includes('migraine')) {
+      if (lowerAns.includes('sudden') || lowerAns.includes('severe') || lowerAns.includes('worst')) {
+        dynamicStep = 'associations';
+        titleEn = 'Are you experiencing any neck stiffness, double vision, or weakness in your arms or legs?';
+        reasoning = 'Screening for intracranial hemorrhage or meningitis red flags';
+        options = [
+          { label: 'Stiff neck and inability to bend head forward', code: 'meningismus', isRed: true },
+          { label: 'Blurred vision or flashing lights (visual aura)', code: 'visual_aura', isRed: false },
+          { label: 'Weakness or numbness on one side of face or arm', code: 'focal_neuro', isRed: true },
+          { label: 'Extreme sensitivity to sound and bright light', code: 'photophobia', isRed: false },
+        ];
+      } else if (stepIndex >= 4) {
+        dynamicStep = 'severity';
+        titleEn = 'How intense is this headache right now on a scale of 0 to 10?';
+        reasoning = 'Establishing headache severity benchmark';
+        isPainScale = true;
+        isFinal = true;
+      } else {
+        dynamicStep = 'character';
+        titleEn = 'What type of headache sensation are you feeling?';
+        reasoning = 'Distinguishing vascular vs tension vs migraine presentation';
+        options = [
+          { label: 'Pulsing or throbbing rhythm like a heartbeat', code: 'throbbing_migraine', isRed: false },
+          { label: 'Tight constricting band squeezing both temples', code: 'tension_band', isRed: false },
+          { label: 'Sharp piercing stabbing behind one eye', code: 'cluster_eye', isRed: false },
+          { label: 'Heavy dull pressure throughout the entire head', code: 'dull_holocranial', isRed: false },
+        ];
+      }
+    }
+    // Generic clinical adaptation
+    else {
+      if (stepIndex >= 4) {
+        dynamicStep = 'severity';
+        titleEn = 'Please rate the overall severity of this symptom from 0 to 10:';
+        reasoning = 'Standardized triage severity scoring';
+        isPainScale = true;
+        isFinal = true;
+      } else if (!socrates.timing && !extractedAttributes.timing) {
+        dynamicStep = 'timing';
+        titleEn = 'How long has this condition been troubling you?';
+        reasoning = 'Establishing symptom timeline and chronicity';
+        options = [
+          { label: 'Started suddenly in the last 1 to 2 hours', code: 'acute_hours', isRed: true },
+          { label: 'Ongoing for 1 to 3 days', code: 'few_days', isRed: false },
+          { label: 'Recurring on and off for several weeks', code: 'subacute_weeks', isRed: false },
+          { label: 'Chronic condition present for over a month', code: 'chronic_months', isRed: false },
+        ];
+      } else {
+        dynamicStep = 'exacerbating';
+        titleEn = 'What activities or factors make this feeling noticeably worse?';
+        reasoning = 'Identifying aggravating physical or environmental triggers';
+        options = [
+          { label: 'Worse during movement, exertion, or walking', code: 'worse_exertion', isRed: false },
+          { label: 'Worse when sitting still, bending, or lying flat', code: 'worse_posture', isRed: false },
+          { label: 'Worse after meals or specific foods', code: 'worse_food', isRed: false },
+          { label: 'Constant throughout the day regardless of activity', code: 'constant_intensity', isRed: false },
+        ];
+      }
+    }
+
+    // 4. Regional Translations for Fallback Title
+    const regionalTitles: Record<string, string> = {
+      en: titleEn,
+      te: dynamicStep === 'severity'
+        ? '0 నుండి 10 స్కేలులో మీ సమస్య తీవ్రతను తెలియజేయండి:'
+        : dynamicStep === 'radiation'
+        ? 'ఈ నొప్పి మీ చేతికి, మెడకు లేదా వీపుకు వ్యాపిస్తుందా?'
+        : dynamicStep === 'associations'
+        ? 'దీనితో పాటు చెమటలు పట్టడం, శ్వాస తీసుకోవడంలో ఇబ్బంది లేదా వికారం ఉందా?'
+        : dynamicStep === 'site'
+        ? 'మీ శరీరంలో ఈ నొప్పి ప్రధానంగా ఎక్కడ కేంద్రీకృతమై ఉంది?'
+        : dynamicStep === 'timing'
+        ? 'ఈ సమస్య ఎంత కాలంగా మిమ్మల్ని ఇబ్బంది పెడుతోంది?'
+        : dynamicStep === 'exacerbating'
+        ? 'నడవడం, శ్రమించడం లేదా ఆహారం తీసుకున్నప్పుడు ఈ నొప్పి పెరుగుతుందా?'
+        : 'మీరు అనుభవిస్తున్న ఈ అసౌకర్య భావనను ఎలా వివరిస్తారు?',
+      ta: dynamicStep === 'severity'
+        ? '0 முதல் 10 வரையிலான அளவில் உங்கள் வலி தீவிரத்தை மதிப்பிடுங்கள்:'
+        : dynamicStep === 'radiation'
+        ? 'இந்த வலி உங்கள் கை, கழுத்து அல்லது முதுகுக்கு பரவுகிறதா?'
+        : dynamicStep === 'associations'
+        ? 'இத்துடன் வியர்வை, மூச்சுத் திணறல் அல்லது குமட்டல் உள்ளதா?'
+        : dynamicStep === 'site'
+        ? 'இந்த வலி முக்கியமாக எங்கு அமைந்துள்ளது?'
+        : dynamicStep === 'timing'
+        ? 'இந்த பிரச்சனை எவ்வளவு காலமாக உள்ளது?'
+        : dynamicStep === 'exacerbating'
+        ? 'நடக்கும்போது அல்லது உணவு சாப்பிட்ட பிறகு இந்த வலி அதிகமாகிறதா?'
+        : 'இந்த அசௌகரியத்தை எவ்வாறு விவரிப்பீர்கள்?',
+      kn: dynamicStep === 'severity'
+        ? '0 ರಿಂದ 10 ರ ಪ್ರಮಾಣದಲ್ಲಿ ನಿಮ್ಮ ತೊಂದರೆಯ ತೀವ್ರತೆಯನ್ನು ತಿಳಿಸಿ:'
+        : dynamicStep === 'radiation'
+        ? 'ಈ ನೋವು ಕೈ, ಕುತ್ತಿಗೆ ಅಥವಾ ಬೆನ್ನಿಗೆ ಹರಡುತ್ತಿದೆಯೇ?'
+        : dynamicStep === 'associations'
+        ? 'ಇದರೊಂದಿಗೆ ಬೆವರು, ಉಸಿರಾಟದ ತೊಂದರೆ ಅಥವಾ ವಾಕರಿಕೆ ಇದೆಯೇ?'
+        : dynamicStep === 'site'
+        ? 'ಈ ನೋವು ಮುಖ್ಯವಾಗಿ ಎಲ್ಲಿದೆ?'
+        : dynamicStep === 'timing'
+        ? 'ಈ ಸಮಸ್ಯೆ ಎಷ್ಟು ಸಮಯದಿಂದ ಇದೆ?'
+        : dynamicStep === 'exacerbating'
+        ? 'ಯಾವ ಚಟುವಟಿಕೆಯಿಂದ ನೋವು ಹೆಚ್ಚಾಗುತ್ತದೆ?'
+        : 'ಈ ನೋವಿನ ಸ್ವರೂಪ ಹೇಗಿದೆ ಎಂಬುದನ್ನು ವಿವರಿಸಿ?',
+      ml: dynamicStep === 'severity'
+        ? '0 മുതൽ 10 വരെയുള്ള സ്കെയിലിൽ നിങ്ങളുടെ വേദനയുടെ തീവ്രത രേഖപ്പെടുത്തുക:'
+        : dynamicStep === 'radiation'
+        ? 'ഈ വേദന നിങ്ങളുടെ കൈയിലേക്കോ കഴുത്തിലേക്കോ പടരുന്നുണ്ടോ?'
+        : dynamicStep === 'associations'
+        ? 'ഇതോടൊപ്പം വിയർപ്പോ ശ്വാസതടസ്സമോ അനുഭവപ്പെടുന്നുണ്ടോ?'
+        : dynamicStep === 'site'
+        ? 'ഈ അസ്വസ്ഥത പ്രധാനമായും എവിടെയാണ്?'
+        : dynamicStep === 'timing'
+        ? 'ഈ ബുദ്ധിമുട്ട് എത്ര നാളായി ഉണ്ട്?'
+        : dynamicStep === 'exacerbating'
+        ? 'എന്തെങ്കിലും ചെയ്യുമ്പോൾ വേദന കൂടുന്നുണ്ടോ?'
+        : 'ഈ അസ്വസ്ഥതയുടെ സ്വഭാവം എങ്ങനെയാണ്?',
+      mr: dynamicStep === 'severity'
+        ? '0 ते 10 च्या प्रमाणात आपल्या त्रासाची तीव्रता सांगा:'
+        : dynamicStep === 'radiation'
+        ? 'ही वेदना हातामध्ये, मानेमध्ये किंवा पाठीत पसरत आहे का?'
+        : dynamicStep === 'associations'
+        ? 'यासोबत घाम येणे, धाप लागणे किंवा मळमळ जाणवत आहे का?'
+        : dynamicStep === 'site'
+        ? 'हा त्रास प्रामुख्याने नक्की कुठे होत आहे?'
+        : dynamicStep === 'timing'
+        ? 'हा त्रास किती काळापासून सुरू आहे?'
+        : dynamicStep === 'exacerbating'
+        ? 'चालण्याने किंवा खाण्याने हा त्रास वाढतो का?'
+        : 'या त्रासाचे स्वरूप कसे जाणवत आहे?',
+    };
+
+    const titleRegional = regionalTitles[selectedLanguage] || titleEn;
+
+    return res.json({
+      success: true,
+      question: {
+        id: `adaptive_q_${Date.now()}`,
+        step: dynamicStep,
+        title: titleEn,
+        titleRegional,
+        subtitle: 'Select the best matching option or use speech input',
+        reasoning,
+        options,
+        isPainScale,
+        isMultiSelect: false,
+        isFinal,
+      },
+      extractedAttributes,
+      newRedFlags,
+      source: 'rule-engine',
+    });
+  } catch (err: any) {
+    console.error('Error in adaptive question engine:', err);
+    res.status(500).json({ error: 'Adaptive question generation failed' });
+  }
+});
+
+// ──────────────────────────────────────────────
 // FHIR R4 ABDM Gateway Push
 // ──────────────────────────────────────────────
 app.post('/api/fhir/push', (req, res) => {
