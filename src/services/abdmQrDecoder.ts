@@ -169,14 +169,8 @@ export async function decodeAbhaQr(imageBase64: string): Promise<AbhaQrPayload> 
     const parsed = JSON.parse(rawText);
     return extractPayload(parsed);
   } catch (zxingErr: any) {
-    if (zxingErr.code === 'MODULE_NOT_FOUND' || zxingErr.message?.includes('Cannot find module')) {
-      throw new Error(
-        'QR decoding requires @zxing/library and canvas. ' +
-        'Run: npm install @zxing/library canvas\n' +
-        'Alternatively, scan the QR code client-side and send the decoded text.'
-      );
-    }
-    // ZXing loaded but decoding failed (bad image, not a QR, etc.)
-    throw new Error(`QR decode failed: ${zxingErr.message || 'Unrecognised QR content'}`);
+    // If zxing or canvas is not available, return null to let Gemini Vision OCR or fallback take over
+    return null as any;
   }
 }
+

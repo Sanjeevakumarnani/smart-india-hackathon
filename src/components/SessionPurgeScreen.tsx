@@ -9,18 +9,89 @@ interface SessionPurgeScreenProps {
   selectedLanguage: LanguageCode;
 }
 
-const PURGE_STEPS = [
-  { icon: <Trash2 className="w-5 h-5" />, label: 'Voice recordings deleted from kiosk memory', labelHi: 'आवाज़ रिकॉर्डिंग हटाई गई', delay: 0 },
-  { icon: <Trash2 className="w-5 h-5" />, label: 'Scanned document images removed from device', labelHi: 'स्कैन की गई छवियाँ हटाई गईं', delay: 600 },
-  { icon: <Lock className="w-5 h-5" />, label: 'Session encrypted and transmitted to doctor', labelHi: 'सत्र एन्क्रिप्ट कर चिकित्सक को भेजा गया', delay: 1200 },
-  { icon: <Wifi className="w-5 h-5" />, label: 'FHIR bundle pushed to your ABHA health locker', labelHi: 'FHIR डेटा ABHA में सुरक्षित किया गया', delay: 1800 },
-  { icon: <ShieldCheck className="w-5 h-5" />, label: 'Kiosk session cleared — privacy protected', labelHi: 'कियोस्क सत्र समाप्त — गोपनीयता सुरक्षित', delay: 2400 },
+interface PurgeStep {
+  icon: React.ReactNode;
+  label: string;
+  regionalLabels: Partial<Record<LanguageCode, string>>;
+  delay: number;
+}
+
+const PURGE_STEPS: PurgeStep[] = [
+  {
+    icon: <Trash2 className="w-5 h-5" />,
+    label: 'Voice recordings deleted from kiosk memory',
+    regionalLabels: {
+      te: 'వాయిస్ రికార్డింగ్‌లు కియోస్క్ మెమరీ నుండి తొలగించబడ్డాయి',
+      ta: 'குரல் பதிவுகள் கியோஸ்க் நினைவகத்திலிருந்து நீக்கப்பட்டன',
+      kn: 'ಧ್ವನಿ ರೆಕಾರ್ಡಿಂಗ್‌ಗಳನ್ನು ಕಿಯೋಸ್ಕ್ ಮೆಮೊರಿಯಿಂದ ಅಳಿಸಲಾಗಿದೆ',
+      ml: 'വോയ്സ് റെക്കോർഡിംഗുകൾ കിയോസ്ക് മെമ്മറിയിൽ നിന്ന് നീക്കംചെയ്തു',
+      mr: 'व्हॉइस रेकॉर्डिंग किओस्क मेमरीमधून हटवले गेले',
+    },
+    delay: 0,
+  },
+  {
+    icon: <Trash2 className="w-5 h-5" />,
+    label: 'Scanned document images removed from device',
+    regionalLabels: {
+      te: 'స్కాన్ చేసిన పత్రాల చిత్రాలు పరికరం నుండి తీసివేయబడ్డాయి',
+      ta: 'ஸ்கேன் செய்யப்பட்ட ஆவணப் படங்கள் சாதனத்திலிருந்து நீக்கப்பட்டன',
+      kn: 'ಸ್ಕ್ಯಾನ್ ಮಾಡಿದ ದಾಖಲೆ ಚಿತ್ರಗಳನ್ನು ಸಾಧನದಿಂದ ತೆಗೆದುಹಾಕಲಾಗಿದೆ',
+      ml: 'സ്കാൻ ചെയ്ത രേഖകളുടെ ചിത്രങ്ങൾ ഉപകരണത്തിൽ നിന്ന് നീക്കംചെയ്തു',
+      mr: 'स्कॅन केलेल्या कागदपत्रांचे फोटो डिव्हाइसवरून काढले गेले',
+    },
+    delay: 600,
+  },
+  {
+    icon: <Lock className="w-5 h-5" />,
+    label: 'Session encrypted and transmitted to doctor',
+    regionalLabels: {
+      te: 'సెషన్ ఎన్‌క్రిప్ట్ చేయబడి వైద్యునికి పంపబడింది',
+      ta: 'அமர்வு குறியாக்கம் செய்யப்பட்டு மருத்துவருக்கு அனுப்பப்பட்டது',
+      kn: 'ಸೆಶನ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಮಾಡಲಾಗಿದ್ದು ವೈದ್ಯರಿಗೆ ಕಳುಹಿಸಲಾಗಿದೆ',
+      ml: 'സെഷൻ എൻക്രിപ്റ്റ് ചെയ്ത് ഡോക്ടർക്ക് അയച്ചു',
+      mr: 'सत्र एन्क्रिप्ट करून डॉक्टरांकडे पाठवले गेले',
+    },
+    delay: 1200,
+  },
+  {
+    icon: <Wifi className="w-5 h-5" />,
+    label: 'FHIR bundle pushed to your ABHA health locker',
+    regionalLabels: {
+      te: 'FHIR డేటా మీ ABHA హెల్త్ లాకర్‌కు సురక్షితంగా పంపబడింది',
+      ta: 'FHIR தரவு உங்கள் ABHA சுகாதார லாக்கருக்கு அனுப்பப்பட்டது',
+      kn: 'FHIR ಡೇಟಾವನ್ನು ನಿಮ್ಮ ABHA ಆರೋಗ್ಯ ಲಾಕರ್‌ಗೆ ತಲುಪಿಸಲಾಗಿದೆ',
+      ml: 'FHIR ഡാറ്റ നിങ്ങളുടെ ABHA ഹെൽത്ത് ലോക്കറിലേക്ക് അയച്ചു',
+      mr: 'FHIR डेटा तुमच्या ABHA हेल्थ लॉकरमध्ये सुरक्षित केला गेला',
+    },
+    delay: 1800,
+  },
+  {
+    icon: <ShieldCheck className="w-5 h-5" />,
+    label: 'Kiosk session cleared — privacy protected',
+    regionalLabels: {
+      te: 'కియోస్క్ సెషన్ తొలగించబడింది — మీ గోప్యత సురక్షితం',
+      ta: 'கியோஸ்க் அமர்வு அழிக்கப்பட்டது — தனியுரிமை பாதுகாப்பானது',
+      kn: 'ಕಿಯೋಸ್ಕ್ ಸೆಷನ್ ತೆರವುಗೊಳಿಸಲಾಗಿದೆ — ಗೌಪ್ಯತೆ ಸುರಕ್ಷಿತವಾಗಿದೆ',
+      ml: 'കിയോസ്ക് സെഷൻ മായ്ച്ചു — സ്വകാര്യത സുരക്ഷിതമാണ്',
+      mr: 'किओस्क सत्र साफ केले — गोपनीयता सुरक्षित',
+    },
+    delay: 2400,
+  },
 ];
 
 export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdToken, onProceed, selectedLanguage }) => {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [countdown, setCountdown] = useState(8);
   const allDone = completedSteps.length === PURGE_STEPS.length;
+
+  const dpdpSubtitles: Record<LanguageCode, string> = {
+    en: 'Your privacy is protected — compliant with DPDP Act 2023',
+    te: 'మీ గోప్యత సురక్షితం — DPDP చట్టం 2023 ప్రకారం',
+    ta: 'உங்கள் தனியுரிமை பாதுகாப்பானது — DPDP சட்டம் 2023 படி',
+    kn: 'ನಿಮ್ಮ ಗೌಪ್ಯತೆ ಸುರಕ್ಷಿತವಾಗಿದೆ — DPDP ಕಾಯ್ದೆ 2023 ರ ಪ್ರಕಾರ',
+    ml: 'നിങ്ങളുടെ സ്വകാര്യത സുരക്ഷിതമാണ് — DPDP നിയമം 2023 അനുസരിച്ച്',
+    mr: 'तुमची गोपनीयता सुरक्षित आहे — DPDP कायदा 2023 नुसार',
+  };
 
   useEffect(() => {
     // Invoke backend purge endpoint for GDPR/DPDP data hygiene
@@ -55,12 +126,13 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
       </div>
 
       <h2 className="text-2xl font-black text-slate-900 text-center mb-1">{translate('dataProtected', selectedLanguage)}</h2>
-      <p className="text-sm text-slate-600 text-center mb-8">आपकी गोपनीयता सुरक्षित है — DPDP Act 2023 के अनुसार</p>
+      <p className="text-sm text-slate-600 text-center mb-8">{dpdpSubtitles[selectedLanguage] || dpdpSubtitles.en}</p>
 
       {/* Purge Steps */}
       <div className="w-full space-y-3 mb-8">
         {PURGE_STEPS.map((step, idx) => {
           const done = completedSteps.includes(idx);
+          const regionalText = selectedLanguage !== 'en' ? step.regionalLabels[selectedLanguage] : null;
           return (
             <div key={idx} className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all duration-500 ${
               done ? 'bg-violet-50 border-indigo-300' : 'bg-white border-slate-200 opacity-60'
@@ -72,7 +144,7 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
               </div>
               <div>
                 <p className="text-sm font-bold text-slate-900">{step.label}</p>
-                <p className="text-xs text-slate-500">{step.labelHi}</p>
+                {regionalText && <p className="text-xs text-indigo-700 font-medium">{regionalText}</p>}
               </div>
             </div>
           );

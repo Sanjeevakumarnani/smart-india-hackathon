@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, RotateCcw, Clock, Shield } from 'lucide-react';
+import { Volume2, VolumeX, RotateCcw, Clock, Shield, Eye, Type, Hand } from 'lucide-react';
 import { KioskStep, LanguageCode, OpdType } from '../types';
 import { ProgressStepper } from './ProgressStepper';
 
@@ -14,6 +14,12 @@ interface PatientHeaderProps {
   language?: LanguageCode;
   opdType: OpdType;
   onNavigateStep: (step: KioskStep) => void;
+  isHighContrast?: boolean;
+  onToggleHighContrast?: () => void;
+  isLargeFont?: boolean;
+  onToggleLargeFont?: () => void;
+  isSignAvatar?: boolean;
+  onToggleSignAvatar?: () => void;
 }
 
 export const PatientHeader: React.FC<PatientHeaderProps> = ({
@@ -27,6 +33,12 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
   language,
   opdType,
   onNavigateStep,
+  isHighContrast,
+  onToggleHighContrast,
+  isLargeFont,
+  onToggleLargeFont,
+  isSignAvatar,
+  onToggleSignAvatar,
 }) => {
   const [timeStr, setTimeStr] = useState<string>('');
 
@@ -126,6 +138,52 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
             </span>
             <span className="font-semibold text-[11px] tracking-wide">ONLINE</span>
           </div>
+
+          {/* Accessibility: High Contrast Toggle */}
+          {onToggleHighContrast && (
+            <button
+              onClick={onToggleHighContrast}
+              className={`p-2 rounded-lg border transition-colors ${
+                isHighContrast
+                  ? 'bg-slate-900 border-slate-900 text-white font-black'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+              title={isHighContrast ? 'Disable High Contrast' : 'Enable High Contrast (WCAG AAA)'}
+            >
+              <Eye className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Accessibility: Large Font Toggle */}
+          {onToggleLargeFont && (
+            <button
+              onClick={onToggleLargeFont}
+              className={`p-2 rounded-lg border transition-colors ${
+                isLargeFont
+                  ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+              title={isLargeFont ? 'Normal Font Size' : 'Large Touch Font Size (A+)'}
+            >
+              <Type className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Accessibility: Indian Sign Language Avatar Toggle */}
+          {onToggleSignAvatar && (
+            <button
+              onClick={onToggleSignAvatar}
+              className={`p-2 rounded-lg border transition-colors flex items-center gap-1 ${
+                isSignAvatar
+                  ? 'bg-teal-600 border-teal-600 text-white font-bold shadow-sm'
+                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+              }`}
+              title={isSignAvatar ? 'Hide Sign Language Avatar' : 'Show Indian Sign Language (ISL) Avatar'}
+            >
+              <Hand className="w-4 h-4" />
+              <span className="text-[10px] font-bold uppercase hidden sm:inline">ISL</span>
+            </button>
+          )}
 
           {/* 6. Audio Toggle */}
           <button

@@ -21,6 +21,70 @@ interface SocratesConversationEngineProps {
   isAudioNarration: boolean;
 }
 
+const SOCRATES_STEP_TRANSLATIONS: Record<string, Partial<Record<LanguageCode, string>>> = {
+  site: {
+    te: 'నొప్పి లేదా సమస్య ఎక్కడ ఉంది?',
+    ta: 'வலி அல்லது அசௌகரியம் எங்குள்ளது?',
+    kn: 'ನೋವು ಅಥವಾ ತೊಂದರೆ ನಿಖರವಾಗಿ ಎಲ್ಲಿದೆ?',
+    ml: 'വേദന കൃത്യമായി എവിടെയാണ് അനുഭവപ്പെടുന്നത്?',
+    mr: 'वेदना किंवा त्रास नक्की कुठे होत आहे?',
+  },
+  onset: {
+    te: 'ఈ సమస్య ఎప్పుడు మరియు ఎలా ప్రారంభమైంది?',
+    ta: 'இந்த பிரச்சனை எப்போது எப்படி தொடங்கியது?',
+    kn: 'ಈ ತೊಂದರೆ ಹೇಗೆ ಮತ್ತು ಯಾವಾಗ ಪ್ರಾರಂಭವಾಯಿತು?',
+    ml: 'ഈ പ്രശ്നം എപ്പോൾ, എങ്ങനെയാണ് തുടങ്ങിയത്?',
+    mr: 'हा त्रास केव्हा आणि कसा सुरू झाला?',
+  },
+  character: {
+    te: 'నొప్పి లేదా బాధ యొక్క స్వభావం ఎలా ఉంది?',
+    ta: 'வலியின் தன்மை எப்படி இருக்கிறது?',
+    kn: 'ನೋವಿನ ಸ್ವರೂಪ ಹೇಗಿದೆ?',
+    ml: 'വേദനയുടെ സ്വഭാവം എങ്ങനെയുള്ളതാണ്?',
+    mr: 'वेदना किंवा त्रासाचे स्वरूप कसे जाणवत आहे?',
+  },
+  radiation: {
+    te: 'నొప్పి శరీరంలో ఇతర భాగాలకు వ్యాపిస్తుందా?',
+    ta: 'வலி உடலின் பிற பகுதிகளுக்கு பரவுகிறதா?',
+    kn: 'ನೋವು ದೇಹದ ಇತರ ಭಾಗಗಳಿಗೆ ಹರಡುತ್ತಿದೆಯೇ?',
+    ml: 'വേദന മറ്റ് ഭാഗങ്ങളിലേക്ക് വ്യാപിക്കുന്നുണ്ടോ?',
+    mr: 'वेदना शरीराच्या इतर भागात पसरत आहे का?',
+  },
+  associations: {
+    te: 'దీనితో పాటు ఇతర అనుబంధ లక్షణాలు ఏమైనా ఉన్నాయా?',
+    ta: 'இத்துடன் தொடர்புடைய பிற அறிகுறிகள் ஏதேனும் உள்ளதா?',
+    kn: 'ಇದರೊಂದಿಗೆ ಬೇರೆ ಯಾವುದೇ ಸಂಬಂಧಿತ ಲಕ್ಷಣಗಳು ಇವೆಯೇ?',
+    ml: 'ഇതോടൊപ്പം മറ്റ് അനുബന്ധ ലക്ഷണങ്ങൾ എന്തെങ്കിലും ഉണ്ടോ?',
+    mr: 'यासोबत इतर कोणतीही संबंधित लक्षणे जाणवत आहेत का?',
+  },
+  timing: {
+    te: 'ఈ నొప్పి ఎంత సమయంగా కొనసాగుతోంది?',
+    ta: 'இந்த வலி எவ்வளவு நேரமாக நீடிக்கிறது?',
+    kn: 'ಈ ನೋವು ಎಷ್ಟು ಸಮಯದಿಂದ ಮುಂದುವರಿಯುತ್ತಿದೆ?',
+    ml: 'ഈ വേദന എത്ര സമയമായി തുടരുന്നു?',
+    mr: 'ही वेदना किती वेळापासून सतत होत आहे?',
+  },
+  exacerbating: {
+    te: 'ఏమి చేయడం వల్ల నొప్పి పెరుగుతుంది లేదా తగ్గుతుంది?',
+    ta: 'எதனால் வலி அதிகமாகிறது அல்லது குறைகிறது?',
+    kn: 'ಯಾವ ಕಾರಣದಿಂದ ನೋವು ಹೆಚ್ಚಾಗುತ್ತದೆ ಅಥವಾ ಕಡಿಮೆಯಾಗುತ್ತದೆ?',
+    ml: 'എന്തുകൊണ്ടാണ് വേദന കൂടുകയോ കുറയുകയോ ചെയ്യുന്നത്?',
+    mr: 'कशाने वेदना वाढते किंवा कमी होते?',
+  },
+  severity: {
+    te: '0 నుండి 10 స్కేలులో మీ నొప్పి తీవ్రతను తెలియజేయండి',
+    ta: '0 முதல் 10 வரையிலான அளவில் உங்கள் வலி தீவிரத்தை மதிப்பிடுங்கள்',
+    kn: '0 ರಿಂದ 10 ರ ಪ್ರಮಾಣದಲ್ಲಿ ನಿಮ್ಮ ನೋವಿನ ತೀವ್ರತೆಯನ್ನು ರೇಟ್ ಮಾಡಿ',
+    ml: '0 മുതൽ 10 വരെയുള്ള സ്കെയിലിൽ നിങ്ങളുടെ വേദനയുടെ തീവ്രത രേഖപ്പെടുത്തുക',
+    mr: '0 ते 10 च्या प्रमाणात आपल्या वेदनेची तीव्रता सांगा',
+  },
+};
+
+const getQuestionRegionalSubtitle = (q: any, lang: LanguageCode): string | undefined => {
+  if (lang === 'en') return undefined;
+  return q?.regionalTitles?.[lang] || SOCRATES_STEP_TRANSLATIONS[q?.step]?.[lang];
+};
+
 export const SocratesConversationEngine: React.FC<SocratesConversationEngineProps> = ({
   complaintId,
   historyObject,
@@ -59,8 +123,8 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
   // Trigger TTS on question change if audio narration is on
   useEffect(() => {
     if (isAudioNarration && currentQ) {
-      const textToSpeak =
-        selectedLanguage === 'hi' && currentQ.titleHi ? currentQ.titleHi : currentQ.title;
+      const regional = getQuestionRegionalSubtitle(currentQ, selectedLanguage);
+      const textToSpeak = regional || currentQ.title;
       speechService.speak(textToSpeak, selectedLanguage);
     }
   }, [currentQIndex, selectedLanguage, isAudioNarration]);
@@ -169,8 +233,8 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
   };
 
   const handlePlayPrompt = () => {
-    const textToSpeak =
-      selectedLanguage === 'hi' && currentQ.titleHi ? currentQ.titleHi : currentQ.title;
+    const regional = getQuestionRegionalSubtitle(currentQ, selectedLanguage);
+    const textToSpeak = regional || currentQ.title;
     speechService.speak(textToSpeak, selectedLanguage);
   };
 
@@ -191,12 +255,78 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
   };
 
   const painFaces = [
-    { score: 0, face: '😊', label: 'No Pain', labelHi: 'कोई दर्द नहीं' },
-    { score: 2, face: '🙂', label: 'Mild', labelHi: 'हल्का' },
-    { score: 4, face: '😐', label: 'Moderate', labelHi: 'मध्यम' },
-    { score: 6, face: '😣', label: 'Severe', labelHi: 'काफी तेज' },
-    { score: 8, face: '😫', label: 'Very Severe', labelHi: 'असहनीय' },
-    { score: 10, face: '😭', label: 'Worst Possible', labelHi: 'अत्यधिक' },
+    {
+      score: 0,
+      face: '😊',
+      label: 'No Pain',
+      regional: {
+        te: 'నొప్పి లేదు',
+        ta: 'வலி இல்லை',
+        kn: 'ನೋವಿಲ್ಲ',
+        ml: 'വേദനയില്ല',
+        mr: 'वेदना नाही',
+      },
+    },
+    {
+      score: 2,
+      face: '🙂',
+      label: 'Mild',
+      regional: {
+        te: 'తేలికపాటి',
+        ta: 'லேசான வலி',
+        kn: 'ಸ್ವಲ್ಪ ನೋವು',
+        ml: 'നേരിയ വേദന',
+        mr: 'किरकोळ वेदना',
+      },
+    },
+    {
+      score: 4,
+      face: '😐',
+      label: 'Moderate',
+      regional: {
+        te: 'మధ్యస్థమైనది',
+        ta: 'மிதமான வலி',
+        kn: 'ಸಾಧಾರಣ ನೋವು',
+        ml: 'മിതമായ വേദന',
+        mr: 'मध्यम वेदना',
+      },
+    },
+    {
+      score: 6,
+      face: '😣',
+      label: 'Severe',
+      regional: {
+        te: 'తీవ్రమైనది',
+        ta: 'கடுமையான வலி',
+        kn: 'ತೀವ್ರ ನೋವು',
+        ml: 'കഠിനമായ വേദന',
+        mr: 'तीव्र वेदना',
+      },
+    },
+    {
+      score: 8,
+      face: '😫',
+      label: 'Very Severe',
+      regional: {
+        te: 'చాలా తీవ్రమైనది',
+        ta: 'மிகக் கடுமையான',
+        kn: 'ಅತಿ ತೀವ್ರ ನೋವು',
+        ml: 'വളരെ കഠിനം',
+        mr: 'असह्य वेदना',
+      },
+    },
+    {
+      score: 10,
+      face: '😭',
+      label: 'Worst Possible',
+      regional: {
+        te: 'భరించలేని నొప్పి',
+        ta: 'தாங்க முடியாத',
+        kn: 'ತಡೆಯಲಾರದ ನೋವು',
+        ml: 'സഹിക്കാനാവാത്തത്',
+        mr: 'अत्यंत तीव्र वेदना',
+      },
+    },
   ];
 
   const hasActiveRedFlag = historyObject.redFlags && historyObject.redFlags.length > 0;
@@ -260,9 +390,9 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
             <h3 className="text-xl sm:text-2xl font-black text-slate-900 leading-tight">
               {currentQ.title}
             </h3>
-            {currentQ.titleHi && (
-              <p className="text-base sm:text-lg text-slate-600 mt-1 font-medium">
-                {currentQ.titleHi}
+            {selectedLanguage !== 'en' && getQuestionRegionalSubtitle(currentQ, selectedLanguage) && (
+              <p className="text-base sm:text-lg text-indigo-700 mt-1 font-semibold">
+                {getQuestionRegionalSubtitle(currentQ, selectedLanguage)}
               </p>
             )}
             {currentQ.subtitle && (
@@ -356,9 +486,11 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
                     <span className="text-[11px] font-bold text-slate-700 mt-0.5">
                       {f.label}
                     </span>
-                    <span className="text-[9px] text-slate-500">
-                      {f.labelHi}
-                    </span>
+                    {selectedLanguage !== 'en' && f.regional[selectedLanguage] && (
+                      <span className="text-[9px] text-indigo-700 font-medium">
+                        {f.regional[selectedLanguage]}
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -451,12 +583,26 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
               {isListening ? (
                 <>
                   <MicOff className="w-4 h-4" />
-                  <span>Listening... (बोलिए)</span>
+                  <span>
+                    {selectedLanguage === 'te' ? 'వింటున్నాము... మాట్లాడండి' :
+                     selectedLanguage === 'ta' ? 'கேட்கிறோம்... பேசவும்' :
+                     selectedLanguage === 'kn' ? 'ಕೇಳುತ್ತಿದ್ದೇವೆ... ಮಾತನಾಡಿ' :
+                     selectedLanguage === 'ml' ? 'കേൾക്കുന്നു... സംസാരിക്കുക' :
+                     selectedLanguage === 'mr' ? 'ऐकत आहोत... बोला' :
+                     'Listening... Speak clearly'}
+                  </span>
                 </>
               ) : (
                 <>
                   <Mic className="w-4 h-4 text-indigo-600" />
-                  <span>Speak Answer (माइक द्वारा उत्तर दें)</span>
+                  <span>
+                    {selectedLanguage === 'te' ? 'వాయిస్ ద్వారా సమాధానం ఇవ్వండి' :
+                     selectedLanguage === 'ta' ? 'குரல் மூலம் பதிலளிக்கவும்' :
+                     selectedLanguage === 'kn' ? 'ಧ್ವನಿ ಮೂಲಕ ಉತ್ತರಿಸಿ' :
+                     selectedLanguage === 'ml' ? 'ശബ്ദത്തിലൂടെ മറുപടി നൽകുക' :
+                     selectedLanguage === 'mr' ? 'आवाजाद्वारे उत्तर द्या' :
+                     'Speak Answer (Mic)'}
+                  </span>
                 </>
               )}
             </button>

@@ -46,6 +46,10 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
   const [queueTokens, setQueueTokens] = useState<QueueToken[]>([]);
   const [isLoadingQueue, setIsLoadingQueue] = useState(false);
   const [selectedToken, setSelectedToken] = useState<QueueToken | null>(null);
+  const [loadedPatientProfile, setLoadedPatientProfile] = useState<PatientProfile | null>(null);
+  const [loadedHistory, setLoadedHistory] = useState<HistoryObject | null>(null);
+  const [loadedDocuments, setLoadedDocuments] = useState<DigitizedDocument[]>([]);
+  const [isLoadingPatientRecord, setIsLoadingPatientRecord] = useState(false);
 
   // Reprioritize Modal State
   const [reprioModalOpen, setReprioModalOpen] = useState(false);
@@ -121,10 +125,34 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
     }
   };
 
-  const handleOpenPatientConsole = (token: QueueToken) => {
+  const handleOpenPatientConsole = async (token: QueueToken) => {
     setSelectedToken(token);
     setActiveTab('console');
+    setIsLoadingPatientRecord(true);
+
+    const lookupId = token.tokenId || (token as any).id || token.tokenNumber;
+    try {
+      const res = await fetch(`/api/encounters/by-token/${encodeURIComponent(lookupId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.patientProfile) setLoadedPatientProfile(data.patientProfile);
+        if (data.historyObject) setLoadedHistory(data.historyObject);
+        if (data.documents) setLoadedDocuments(data.documents);
+      } else {
+        // Fallback to active props if encounter is current kiosk session
+        setLoadedPatientProfile(null);
+        setLoadedHistory(null);
+        setLoadedDocuments([]);
+      }
+    } catch {
+      setLoadedPatientProfile(null);
+      setLoadedHistory(null);
+      setLoadedDocuments([]);
+    } finally {
+      setIsLoadingPatientRecord(false);
+    }
   };
+
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col">
@@ -390,14 +418,15 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
             </div>
 
             <PhysicianSummaryConsole
-              patientProfile={activePatientProfile}
-              historyObject={activeHistory}
-              documents={activeDocuments}
+              patientProfile={loadedPatientProfile || activePatientProfile}
+              historyObject={loadedHistory || activeHistory}
+              documents={loadedDocuments.length > 0 ? loadedDocuments : activeDocuments}
               selectedLanguage={selectedLanguage}
               onOpenWhatsApp={onOpenWhatsApp}
               onOpenQueue={() => setActiveTab('queue')}
               createdToken={selectedToken || createdToken}
             />
+
           </div>
         )}
       </main>

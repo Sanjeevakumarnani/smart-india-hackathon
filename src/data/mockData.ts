@@ -49,7 +49,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'chest_pain',
     title: 'Chest Pain / Discomfort',
-    titleHi: 'सीने में दर्द या भारीपन',
     icon: 'HeartPulse',
     color: 'from-rose-500/20 to-red-600/30 border-rose-500/40 text-rose-400',
     badge: 'Cardiovascular',
@@ -58,7 +57,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'stomach_digestive',
     title: 'Stomach Pain / Digestive Issues',
-    titleHi: 'पेट दर्द / गैस / अपच / कब्ज',
     icon: 'Apple',
     color: 'from-amber-500/20 to-orange-600/30 border-amber-500/40 text-amber-400',
     badge: 'Gastroenterology / AYUSH',
@@ -67,7 +65,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'fever_cough',
     title: 'High Fever & Respiratory Cough',
-    titleHi: 'तेज बुखार, खांसी व सांस लेने में तकलीफ',
     icon: 'Thermometer',
     color: 'from-blue-500/20 to-cyan-600/30 border-blue-500/40 text-cyan-400',
     badge: 'Infectious / Pulmonology',
@@ -76,7 +73,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'headache_neuro',
     title: 'Severe Headache & Dizziness',
-    titleHi: 'तेज सिरदर्द, चक्कर आना या दृष्टि धुंधली होना',
     icon: 'Brain',
     color: 'from-purple-500/20 to-indigo-600/30 border-purple-500/40 text-purple-400',
     badge: 'Neurology',
@@ -85,7 +81,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'joint_muscle',
     title: 'Joint Pain & Stiffness (Sandhivata)',
-    titleHi: 'जोड़ों में दर्द व अकड़न (संधिवात)',
     icon: 'Activity',
     color: 'from-emerald-500/20 to-indigo-600/30 border-emerald-500/40 text-emerald-600',
     badge: 'Orthopedics / AYUSH',
@@ -94,7 +89,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'skin_rash',
     title: 'Skin Rash & Allergic Itching (Kushta/Kandu)',
-    titleHi: 'त्वचा पर चकत्ते, खुजली या छाले',
     icon: 'ShieldAlert',
     color: 'from-pink-500/20 to-rose-600/30 border-pink-500/40 text-pink-400',
     badge: 'Dermatology / Twak Rog',
@@ -103,7 +97,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'headache',
     title: 'Headache & Migraine',
-    titleHi: 'सिरदर्द, माइग्रेन या चक्कर आना',
     icon: 'Brain',
     color: 'from-violet-500/20 to-purple-600/30 border-violet-500/40 text-violet-600',
     badge: 'Neurology / General',
@@ -112,7 +105,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'joint_pain',
     title: 'Joint Pain & Arthritis',
-    titleHi: 'जोड़ों में दर्द, सूजन व अकड़न',
     icon: 'Activity',
     color: 'from-indigo-500/20 to-emerald-600/30 border-indigo-500/40 text-indigo-600',
     badge: 'Orthopedics / Rheumatology',
@@ -121,7 +113,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'back_pain',
     title: 'Back Pain & Spine Issues',
-    titleHi: 'पीठ दर्द, कमर दर्द व रीढ़ की तकलीफ',
     icon: 'Activity',
     color: 'from-orange-500/20 to-amber-600/30 border-orange-500/40 text-orange-400',
     badge: 'Orthopedics / Spine',
@@ -130,7 +121,6 @@ export const CHIEF_COMPLAINTS_LIST = [
   {
     id: 'breathlessness',
     title: 'Breathlessness & Asthma',
-    titleHi: 'सांस फूलना, अस्थमा या घरघराहट',
     icon: 'Wind',
     color: 'from-indigo-500/20 to-blue-600/30 border-indigo-500/40 text-indigo-600',
     badge: 'Pulmonology / Chest OPD',
@@ -143,7 +133,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'site',
       title: 'Where exactly is the pain located?',
-      titleHi: 'दर्द शरीर में ठीक किस जगह पर हो रहा है?',
       subtitle: 'Tap the matching area or use the body diagram',
       options: [
         { label: 'Center of chest (Behind breastbone / Retrosternal)', code: 'retrosternal', isRed: true },
@@ -155,7 +144,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'onset',
       title: 'How quickly did the pain begin?',
-      titleHi: 'दर्द कैसे और कब शुरू हुआ?',
       subtitle: 'Select the onset characteristic',
       options: [
         { label: 'Sudden & Severe (within minutes)', code: 'sudden_severe', isRed: true },
@@ -167,7 +155,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'character',
       title: 'How does the pain feel?',
-      titleHi: 'दर्द का स्वरूप कैसा महसूस हो रहा है?',
       subtitle: 'Choose the sensation description',
       options: [
         { label: 'Heavy pressure / Crushing / Tight band squeezing', code: 'crushing_pressure', isRed: true },
@@ -179,7 +166,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'radiation',
       title: 'Does the pain spread or travel anywhere else?',
-      titleHi: 'क्या दर्द शरीर के किसी अन्य हिस्से में फैल रहा है?',
       subtitle: 'Radiation patterns give vital cardiac clues',
       options: [
         { label: 'Spreads to Left Arm, Shoulder & Jaw', code: 'left_arm_jaw', isRed: true },
@@ -191,7 +177,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'associations',
       title: 'Do you notice any other associated symptoms right now?',
-      titleHi: 'क्या साथ में इनमें से कोई अन्य लक्षण महसूस हो रहे हैं?',
       subtitle: 'Multi-select all that apply',
       isMultiSelect: true,
       options: [
@@ -205,7 +190,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'timing',
       title: 'How long has this current episode been going on?',
-      titleHi: 'यह दर्द कितनी देर से लगातार बना हुआ है?',
       options: [
         { label: 'Continuous for over 30 minutes', code: 'gt_30m_continuous', isRed: true },
         { label: 'Past 1–2 hours non-stop', code: '1_2_hours', isRed: true },
@@ -216,7 +200,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'exacerbating',
       title: 'What makes the pain worse or better?',
-      titleHi: 'किस चीज़ से दर्द बढ़ता या घटता है?',
       options: [
         { label: 'Worse with walking/climbing stairs, better with complete rest', code: 'exertion_rest_cycle', isRed: true },
         { label: 'Does NOT ease with rest — continuously intense', code: 'unrelieved_by_rest', isRed: true },
@@ -227,7 +210,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'severity',
       title: 'Rate your pain severity on a scale of 0 to 10',
-      titleHi: '0 से 10 के पैमाने पर दर्द की तीव्रता बताएं',
       isPainScale: true,
     },
   ],
@@ -235,7 +217,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'site',
       title: 'Where in the stomach is the main discomfort?',
-      titleHi: 'पेट में दर्द या तकलीफ किस जगह है?',
       options: [
         { label: 'Upper middle stomach (Epigastrium / Amashaya)', code: 'epigastrium', isRed: false },
         { label: 'Lower right side (Iliac fossa / Appendix region)', code: 'right_lower', isRed: true },
@@ -246,7 +227,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'onset',
       title: 'When does the stomach discomfort mainly occur?',
-      titleHi: 'पेट की तकलीफ कब ज्यादा होती है?',
       options: [
         { label: 'Immediately after meals (Annadrava Shula)', code: 'post_meal', isRed: false },
         { label: 'On empty stomach / Late night (Parinama Shula)', code: 'empty_stomach', isRed: false },
@@ -257,7 +237,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'character',
       title: 'What type of discomfort is it?',
-      titleHi: 'तकलीफ किस तरह की है?',
       options: [
         { label: 'Burning sensation in chest & throat (Hrid-Daha / Amlapitta)', code: 'burning_hriddaha', isRed: false },
         { label: 'Cramping / Colicky griping pain', code: 'cramping_colic', isRed: false },
@@ -268,7 +247,6 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'associations',
       title: 'Associated digestive symptoms:',
-      titleHi: 'साथ में अन्य लक्षण:',
       isMultiSelect: true,
       options: [
         { label: 'Sour or bitter acidic burps (Amla/Tikta Udgara)', code: 'sour_burps', isRed: false },
@@ -281,13 +259,12 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
     {
       step: 'severity',
       title: 'Rate your discomfort severity (0 - 10)',
-      titleHi: 'तकलीफ की तीव्रता चुनें (0 - 10)',
       isPainScale: true,
     },
   ],
   headache: [
     {
-      step: 'site', title: 'Where is the headache?', titleHi: 'सिरदर्द कहाँ है?',
+      step: 'site', title: 'Where is the headache?',
       subtitle: 'Select the location of your headache', isMultiSelect: false,
       options: [
         { label: 'Forehead / Front of head', code: 'frontal', isRed: false },
@@ -298,7 +275,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'onset', title: 'When did it start?', titleHi: 'यह कब शुरू हुआ?',
+      step: 'onset', title: 'When did it start?',
       subtitle: 'How quickly did the headache begin?', isMultiSelect: false,
       options: [
         { label: 'Sudden, thunderclap onset (worst headache of life)', code: 'thunderclap', isRed: true },
@@ -308,7 +285,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'character', title: 'What does the headache feel like?', titleHi: 'सिरदर्द कैसा महसूस होता है?',
+      step: 'character', title: 'What does the headache feel like?',
       isMultiSelect: false,
       options: [
         { label: 'Throbbing / Pulsating (like heartbeat)', code: 'throbbing', isRed: false },
@@ -318,7 +295,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'associations', title: 'Any associated symptoms?', titleHi: 'क्या साथ में कोई और लक्षण है?',
+      step: 'associations', title: 'Any associated symptoms?',
       isMultiSelect: true,
       options: [
         { label: 'Nausea / Vomiting', code: 'nausea', isRed: false },
@@ -330,13 +307,13 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'severity', title: 'How severe is the headache?', titleHi: 'सिरदर्द कितना तेज है?',
+      step: 'severity', title: 'How severe is the headache?',
       isPainScale: true,
     },
   ],
   joint_pain: [
     {
-      step: 'site', title: 'Which joint(s) are affected?', titleHi: 'कौन सा जोड़ प्रभावित है?',
+      step: 'site', title: 'Which joint(s) are affected?',
       isMultiSelect: true,
       options: [
         { label: 'Knee joint(s)', code: 'knee', isRed: false },
@@ -348,7 +325,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'onset', title: 'How did the joint pain start?', titleHi: 'जोड़ों का दर्द कैसे शुरू हुआ?',
+      step: 'onset', title: 'How did the joint pain start?',
       isMultiSelect: false,
       options: [
         { label: 'After injury / trauma', code: 'trauma', isRed: false },
@@ -358,7 +335,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'character', title: 'Describe the joint pain', titleHi: 'जोड़ों के दर्द का स्वभाव बताएं',
+      step: 'character', title: 'Describe the joint pain',
       isMultiSelect: false,
       options: [
         { label: 'Morning stiffness > 1 hour (improves with activity)', code: 'morning_stiff', isRed: false },
@@ -368,7 +345,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'associations', title: 'Any joint swelling, warmth or redness?', titleHi: 'जोड़ में सूजन, गर्मी या लाली है?',
+      step: 'associations', title: 'Any joint swelling, warmth or redness?',
       isMultiSelect: true,
       options: [
         { label: 'Visible swelling of joint', code: 'swelling', isRed: false },
@@ -379,13 +356,13 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'severity', title: 'How severe is the joint pain?', titleHi: 'जोड़ों का दर्द कितना तेज है?',
+      step: 'severity', title: 'How severe is the joint pain?',
       isPainScale: true,
     },
   ],
   back_pain: [
     {
-      step: 'site', title: 'Where is the back pain?', titleHi: 'पीठ में दर्द कहाँ है?',
+      step: 'site', title: 'Where is the back pain?',
       isMultiSelect: false,
       options: [
         { label: 'Lower back (Lumbar)', code: 'lumbar', isRed: false },
@@ -395,7 +372,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'radiation', title: 'Does the pain travel anywhere?', titleHi: 'क्या दर्द कहीं और जाता है?',
+      step: 'radiation', title: 'Does the pain travel anywhere?',
       isMultiSelect: false,
       options: [
         { label: 'Down the leg (Sciatica)', code: 'sciatica', isRed: false },
@@ -405,7 +382,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'associations', title: 'Any neurological symptoms?', titleHi: 'क्या कोई तंत्रिका संबंधी लक्षण हैं?',
+      step: 'associations', title: 'Any neurological symptoms?',
       isMultiSelect: true,
       options: [
         { label: 'Numbness / Tingling in legs', code: 'numbness_legs', isRed: false },
@@ -416,13 +393,13 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'severity', title: 'How severe is the back pain?', titleHi: 'पीठ दर्द कितना तेज है?',
+      step: 'severity', title: 'How severe is the back pain?',
       isPainScale: true,
     },
   ],
   breathlessness: [
     {
-      step: 'onset', title: 'When does breathlessness occur?', titleHi: 'सांस फूलने की समस्या कब होती है?',
+      step: 'onset', title: 'When does breathlessness occur?',
       isMultiSelect: false,
       options: [
         { label: 'At rest — even without activity', code: 'at_rest', isRed: true },
@@ -432,7 +409,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'associations', title: 'Any associated symptoms?', titleHi: 'साथ में क्या लक्षण हैं?',
+      step: 'associations', title: 'Any associated symptoms?',
       isMultiSelect: true,
       options: [
         { label: 'Chest tightness / Wheeze', code: 'wheeze', isRed: false },
@@ -443,13 +420,13 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'severity', title: 'How severe is the breathlessness?', titleHi: 'सांस लेने में कितनी तकलीफ है?',
+      step: 'severity', title: 'How severe is the breathlessness?',
       isPainScale: true,
     },
   ],
   skin_rash: [
     {
-      step: 'site', title: 'Where is the rash?', titleHi: 'चकत्ता कहाँ है?',
+      step: 'site', title: 'Where is the rash?',
       isMultiSelect: true,
       options: [
         { label: 'Face / Scalp', code: 'face', isRed: false },
@@ -460,7 +437,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'character', title: 'What does the rash look like?', titleHi: 'चकत्ता कैसा दिखता है?',
+      step: 'character', title: 'What does the rash look like?',
       isMultiSelect: false,
       options: [
         { label: 'Raised red hives (Urticaria / Welts)', code: 'urticaria', isRed: false },
@@ -471,7 +448,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'associations', title: 'Associated symptoms?', titleHi: 'साथ में कोई और लक्षण?',
+      step: 'associations', title: 'Associated symptoms?',
       isMultiSelect: true,
       options: [
         { label: 'Severe itching', code: 'itching', isRed: false },
@@ -482,7 +459,7 @@ export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {
       ],
     },
     {
-      step: 'severity', title: 'How severe is the discomfort?', titleHi: 'परेशानी कितनी है?',
+      step: 'severity', title: 'How severe is the discomfort?',
       isPainScale: true,
     },
   ],
@@ -492,12 +469,11 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'prakriti_skin_frame',
     title: 'Deha Prakriti (Physical Frame & Skin Type)',
-    titleHi: 'देह प्रकृति — शारीरिक बनावट व त्वचा',
     subtitle: 'Select the card that best matches your lifelong constitution',
     options: [
       {
         dosha: 'Vata',
-        label: 'Vata (वात प्रधान)',
+        label: 'Vata-Pradhana',
         desc: 'Thin / Lean frame, dry or rough skin, prominent veins/joints, sensitive to cold breezes, fast moving.',
         visualIcon: 'Wind',
         accentColor: 'border-cyan-500/50 bg-cyan-950/30 text-cyan-300',
@@ -505,7 +481,7 @@ export const AYUSH_DASHAVIDHA_CARDS = [
       },
       {
         dosha: 'Pitta',
-        label: 'Pitta (पित्त प्रधान)',
+        label: 'Pitta-Pradhana',
         desc: 'Medium athletic build, warm reddish/fair skin, prone to moles/freckles, sweats easily, sensitive to heat.',
         visualIcon: 'Flame',
         accentColor: 'border-amber-500/50 bg-amber-950/30 text-amber-300',
@@ -513,7 +489,7 @@ export const AYUSH_DASHAVIDHA_CARDS = [
       },
       {
         dosha: 'Kapha',
-        label: 'Kapha (कफ प्रधान)',
+        label: 'Kapha-Pradhana',
         desc: 'Broad solid build, thick oily soft glowing skin, deep dense hair, strong endurance, slow deliberate pace.',
         visualIcon: 'Droplets',
         accentColor: 'border-emerald-500/50 bg-emerald-950/30 text-emerald-300',
@@ -524,12 +500,11 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'agni_pariksha',
     title: 'Agni Pariksha (Digestive Fire & Appetite)',
-    titleHi: 'अग्नि परीक्षा — भूख व पाचन शक्ति',
     subtitle: 'How is your digestion and appetite rhythm?',
     options: [
       {
         dosha: 'Vishama Agni',
-        label: 'Vishama Agni (Irregular / वात)',
+        label: 'Vishama Agni (Irregular)',
         desc: 'Fluctuating hunger — sometimes voracious, sometimes completely absent. Prone to gas, distension, constipation.',
         visualIcon: 'Activity',
         accentColor: 'border-cyan-500/50 bg-cyan-950/30 text-cyan-300',
@@ -537,7 +512,7 @@ export const AYUSH_DASHAVIDHA_CARDS = [
       },
       {
         dosha: 'Tikshna Agni',
-        label: 'Tikshna Agni (Intense / पित्त)',
+        label: 'Tikshna Agni (Intense)',
         desc: 'Intense sharp hunger — cannot tolerate skipping meals, feels angry/shaky if delayed. Prone to acidity and burning.',
         visualIcon: 'Flame',
         accentColor: 'border-amber-500/50 bg-amber-950/30 text-amber-300',
@@ -545,7 +520,7 @@ export const AYUSH_DASHAVIDHA_CARDS = [
       },
       {
         dosha: 'Manda Agni',
-        label: 'Manda Agni (Sluggish / कफ)',
+        label: 'Manda Agni (Sluggish)',
         desc: 'Low dull hunger, heavy sluggish digestion for hours after small meals, mucus in throat, tends to gain weight.',
         visualIcon: 'Clock',
         accentColor: 'border-emerald-500/50 bg-emerald-950/30 text-emerald-300',
@@ -556,12 +531,11 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'koshtha_pariksha',
     title: 'Koshtha Pariksha (Bowel Pattern & Elimination)',
-    titleHi: 'कोष्ठ परीक्षा — मल त्याग व आंतों की प्रवृत्ति',
     subtitle: 'Select your regular bowel pattern',
     options: [
       {
         dosha: 'Krura Koshtha',
-        label: 'Krura Koshtha (Hard / वात)',
+        label: 'Krura Koshtha (Hard Bowel)',
         desc: 'Hard, dry stools with difficulty passing; requires strong laxatives or warm milk to induce movement.',
         visualIcon: 'Shield',
         accentColor: 'border-cyan-500/50 bg-cyan-950/30 text-cyan-300',
@@ -588,7 +562,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'ahara_vihara',
     title: 'Ahara-Vihara & Sleep (Dietary Preference & Lifestyle)',
-    titleHi: 'आहार-विहार व निद्रा — जीवनशैली व खानपान',
     subtitle: 'Your sleep quality and taste preferences',
     options: [
       {
@@ -620,7 +593,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'jihva_pariksha',
     title: 'Jihva Pariksha (Tongue Examination)',
-    titleHi: 'जिह्वा परीक्षा — जीभ का रंग व लेप',
     subtitle: 'Observe your tongue in the mirror morning before brushing',
     options: [
       {
@@ -652,7 +624,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'vikriti_pariksha',
     title: 'Vikriti — Current State (विकृति)',
-    titleHi: 'विकृति — वर्तमान असंतुलन',
     options: [
       {
         label: 'Acute Aggravation (नूतन विकृति)',
@@ -683,7 +654,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'sara_pariksha',
     title: 'Sara — Tissue Excellence (सार)',
-    titleHi: 'सार — धातु की श्रेष्ठता',
     options: [
       {
         label: 'Rasa Sara (Excellent — Ojas)',
@@ -714,7 +684,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'satva_pariksha',
     title: 'Satva — Mental Strength (सत्व)',
-    titleHi: 'सत्व — मानसिक शक्ति',
     options: [
       {
         label: 'Pravara Satva (Strong Mind)',
@@ -745,7 +714,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'vyayama_shakti',
     title: 'Vyayama Shakti — Exercise Capacity (व्यायाम शक्ति)',
-    titleHi: 'व्यायाम शक्ति — शारीरिक क्षमता',
     options: [
       {
         label: 'Pravara (High Capacity)',
@@ -776,7 +744,6 @@ export const AYUSH_DASHAVIDHA_CARDS = [
   {
     id: 'vaya_pariksha',
     title: 'Vaya — Life Stage (वय)',
-    titleHi: 'वय — जीवन की अवस्था',
     options: [
       {
         label: 'Balavastha (Childhood / < 18 yrs)',

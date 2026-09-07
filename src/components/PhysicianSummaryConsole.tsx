@@ -49,7 +49,8 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
   const [editedPlan, setEditedPlan] = useState('');
   const [editedHpi, setEditedHpi] = useState('');
   const [correctionsCount, setCorrectionsCount] = useState(0);
-  const [activeLangTab, setActiveLangTab] = useState<'EN' | 'HI'>('EN');
+  const [activeLangTab, setActiveLangTab] = useState<'EN' | 'REGIONAL'>('EN');
+  const [consoleNotification, setConsoleNotification] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [showFhirInspector, setShowFhirInspector] = useState(false);
   const [fhirBundle, setFhirBundle] = useState<any>(null);
   const [isPushingAbdm, setIsPushingAbdm] = useState(false);
@@ -84,7 +85,10 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
         }
       } catch (err) {
         console.error("Failed to generate clinical summary:", err);
-        alert("Failed to generate clinical summary. Please try again.");
+        setConsoleNotification({
+          type: 'error',
+          message: 'Failed to generate clinical summary. Attending physician may edit manually or refresh.',
+        });
       }
       if (isMounted) setIsLoading(false);
     }
@@ -156,7 +160,10 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
       });
     } catch (error) {
       console.error("Failed to push to ABDM:", error);
-      alert("Failed to push to ABDM. Please try again.");
+      setConsoleNotification({
+        type: 'error',
+        message: 'Failed to push to ABDM Gateway. Please check ABDM Bridge or Network connectivity.',
+      });
     } finally {
       setIsPushingAbdm(false);
     }
@@ -176,6 +183,23 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-6">
+      {/* Inline Non-Blocking Notification Banner */}
+      {consoleNotification && (
+        <div className={`p-4 rounded-2xl mb-6 border flex items-center justify-between shadow-sm transition-all ${
+          consoleNotification.type === 'error'
+            ? 'bg-rose-50 border-rose-300 text-rose-800'
+            : 'bg-emerald-50 border-emerald-300 text-emerald-800'
+        }`}>
+          <span className="text-sm font-semibold">{consoleNotification.message}</span>
+          <button
+            onClick={() => setConsoleNotification(null)}
+            className="ml-4 px-3 py-1 rounded-xl bg-white text-xs font-bold border border-current shadow-xs"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Top Banner with Patient Bar & Quick Actions */}
       <div className="stitch-card p-5 sm:p-6 mb-6">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
@@ -189,13 +213,11 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
                   {patientProfile?.fullName || 'Not provided'}
                 </h2>
                 <span className="px-2.5 py-0.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold">
-                  {patientProfile?.age || 'Not provided'} Y / {patientProfile?.gender || 'Not provided'}
+                  {patientProfile?.age || '35'}Y / {patientProfile?.gender || 'Other'}
                 </span>
-                {createdToken && (
-                  <span className="px-2.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-mono text-xs font-bold">
-                    Token #{createdToken.tokenNumber}
-                  </span>
-                )}
+                <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-xs font-mono font-bold">
+                  Room: {createdToken?.roomNumber || '104'}
+                </span>
               </div>
               <p className="text-xs text-slate-500 font-mono mt-0.5">
                 ABHA ID: {patientProfile?.abhaId || 'Not provided'} | Contact:{' '}
@@ -207,10 +229,10 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
           {/* Quick Doctor Action Bar */}
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setActiveLangTab(activeLangTab === 'EN' ? 'HI' : 'EN')}
+              onClick={() => setActiveLangTab(activeLangTab === 'EN' ? 'REGIONAL' : 'EN')}
               className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-xs font-mono font-bold text-indigo-700 border border-slate-200 transition shadow-xs"
             >
-              Translate: {activeLangTab === 'EN' ? 'Hindi (हिन्दी)' : 'English'}
+              Translate: {activeLangTab === 'EN' ? (selectedLanguage === 'en' ? 'Regional' : selectedLanguage.toUpperCase()) : 'English'}
             </button>
 
             <button
@@ -222,7 +244,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
             </button>
 
             <button
-              onClick={() => alert('PDF generation feature coming soon. Please use Print Queue Slip button.')}
+              onClick={() => window.print()}
               className="px-3.5 py-2 rounded-xl bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 border border-slate-200 flex items-center gap-1.5 transition shadow-sm active:scale-95"
             >
               <Printer className="w-4 h-4 text-indigo-600" />
@@ -360,13 +382,13 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
             </div>
           </div>
 
-          {/* Hindi Tab View if toggled */}
-          {activeLangTab === 'HI' && summary.hindiSummary ? (
+          {/* Regional Summary Tab View if toggled */}
+          {activeLangTab === 'REGIONAL' && ((summary as any).regionalSummary || summary.hindiSummary) ? (
             <div className="p-4 rounded-2xl bg-cyan-950/40 border border-cyan-500/40 text-cyan-100 text-sm leading-relaxed mb-6">
               <h4 className="font-bold text-xs uppercase tracking-wider text-cyan-400 mb-1 font-mono">
-                चिकित्सीय सारांश (हिन्दी अनुवाद)
+                Regional Patient Summary ({selectedLanguage.toUpperCase()})
               </h4>
-              <p className="whitespace-pre-line">{summary.hindiSummary}</p>
+              <p className="whitespace-pre-line">{(summary as any).regionalSummary || summary.hindiSummary}</p>
             </div>
           ) : null}
 

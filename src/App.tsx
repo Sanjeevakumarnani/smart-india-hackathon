@@ -64,6 +64,7 @@ export function App() {
   const [isSignAvatar, setIsSignAvatar] = useState(false);
   const [isOfflineSimulated, setIsOfflineSimulated] = useState(false);
   const [isWhatsAppOpen, setIsWhatsAppOpen] = useState(false);
+  const [kioskBanner, setKioskBanner] = useState<{ type: 'error' | 'success' | 'info'; message: string } | null>(null);
 
   // Consent
   const [consent, setConsent] = useState<ConsentSettings>({
@@ -153,12 +154,23 @@ export function App() {
     };
 
     try {
-      const response = await fetch('/api/queue/token', {
+      // 1. Atomic encounter persistence across patient, encounter, token, vitals, socrates, ayush, history, documents
+      const completePayload = {
+        tokenPayload,
+        patientProfile,
+        socrates: historyObject.socrates,
+        ayush: historyObject.ayush,
+        familyHistory: historyObject.familyHistory,
+        personalHistory: historyObject.personalHistory,
+        documents: documents || [],
+      };
+
+      const response = await fetch('/api/encounters/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(tokenPayload)
+        body: JSON.stringify(completePayload),
       });
-      
+
       let serverResponse;
       if (response.ok) {
         serverResponse = await response.json();
@@ -167,52 +179,32 @@ export function App() {
       }
 
       const sToken = serverResponse.token || serverResponse;
-      const encounterId = sToken.encounterId || `ENC-${Date.now().toString().slice(-6)}`;
 
-      // Persist clinical sub-tables to MySQL for this encounter
-      if (patientProfile?.vitals) {
-        fetch(`/api/encounters/${encounterId}/vitals`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patientProfile.vitals),
-        }).catch(() => {});
-      }
-
-      if (historyObject.socrates) {
-        fetch(`/api/encounters/${encounterId}/socrates`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(historyObject.socrates),
-        }).catch(() => {});
-      }
-
-      if (historyObject.ayush) {
-        fetch(`/api/encounters/${encounterId}/ayush`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(historyObject.ayush),
-        }).catch(() => {});
-      }
-
-      if (historyObject.familyHistory || historyObject.personalHistory) {
-        fetch(`/api/encounters/${encounterId}/history`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            familyHistory: historyObject.familyHistory,
-            personalHistory: historyObject.personalHistory,
-          }),
-        }).catch(() => {});
-      }
-
-      if (documents && documents.length > 0) {
-        documents.forEach((doc) => {
-          fetch('/api/documents', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...doc, encounterId }),
-          }).catch(() => {});
-        });
+      // 2. Save encounter to localStorage 'medikiosk_fhir_archive' for Patient Portal continuity
+      try {
+        const existingArchive = JSON.parse(localStorage.getItem('medikiosk_fhir_archive') || '[]');
+        const archiveItem = {
+          id: sToken.id || sToken.tokenId || `ENC-${Date.now()}`,
+          date: new Date().toISOString(),
+          title: `${historyObject.chiefComplaint || 'OPD Consultation'} Summary`,
+          documentType: 'discharge_summary',
+          hospitalOrClinic: 'AIIMS / District OPD Centre',
+          doctorName: sToken.doctorName || 'Attending Physician',
+          diagnoses: [historyObject.chiefComplaint || 'Clinical Consultation'],
+          abhaId: tokenPayload.abhaId || 'ABHA-DEMO-001',
+          patientName: tokenPayload.patientName || 'Patient',
+          department: opdType === 'ayurveda' ? 'Ayurveda / AYUSH' : 'General Medicine OPD',
+          status: 'COMPLETED',
+          vitals: patientProfile?.vitals,
+          socrates: historyObject.socrates,
+          ayush: historyObject.ayush,
+          documents: documents || [],
+          redFlags: historyObject.redFlags || [],
+          rawOcrText: 'Digital Health Record synchronized with ABDM Health Locker.',
+        };
+        localStorage.setItem('medikiosk_fhir_archive', JSON.stringify([archiveItem, ...existingArchive]));
+      } catch (e) {
+        console.warn('Could not save to fhir archive:', e);
       }
 
       const newToken: QueueToken = {
@@ -259,13 +251,16 @@ export function App() {
       setQueue(updatedQueue);
     } catch (error) {
       console.error("Token creation failed:", error);
-      alert("Failed to create token. Please try again.");
+      setKioskBanner({
+        type: 'error',
+        message: 'Unable to issue OPD token. Please re-check vitals or contact hospital intake desk.',
+      });
     }
   };
 
   const handleResetKiosk = () => {
     setCurrentStep('LANGUAGE');
-    setSelectedLanguage('hi');
+    setSelectedLanguage('en');
     setPatientProfile(null);
     setOpdType('allopathic');
     setSelectedComplaintId('');
@@ -377,7 +372,36 @@ export function App() {
         language={selectedLanguage}
         opdType={opdType}
         onNavigateStep={(step) => setCurrentStep(step)}
+        isHighContrast={isHighContrast}
+        onToggleHighContrast={() => setIsHighContrast(!isHighContrast)}
+        isLargeFont={isLargeFont}
+        onToggleLargeFont={() => setIsLargeFont(!isLargeFont)}
+        isSignAvatar={isSignAvatar}
+        onToggleSignAvatar={() => setIsSignAvatar(!isSignAvatar)}
       />
+
+      {/* Inline Kiosk Banner (WCAG / Touch-Friendly Non-Blocking Alerts) */}
+      {kioskBanner && (
+        <div className="max-w-4xl mx-auto w-full px-4 mt-3 z-30">
+          <div
+            className={`p-4 rounded-2xl border flex items-center justify-between shadow-sm transition-all ${
+              kioskBanner.type === 'error'
+                ? 'bg-rose-50 border-rose-300 text-rose-800'
+                : kioskBanner.type === 'success'
+                ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                : 'bg-indigo-50 border-indigo-300 text-indigo-800'
+            }`}
+          >
+            <span className="text-sm font-semibold">{kioskBanner.message}</span>
+            <button
+              onClick={() => setKioskBanner(null)}
+              className="ml-4 px-3 py-1 rounded-xl bg-white/80 hover:bg-white text-xs font-bold border border-current shadow-xs"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Kiosk Content Stage */}
       <main className="flex-1 flex flex-col justify-start py-2 relative z-10">

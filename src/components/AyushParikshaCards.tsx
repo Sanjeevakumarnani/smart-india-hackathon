@@ -196,13 +196,18 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
       <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <Leaf className="w-4 h-4 text-indigo-600" />
-          <span>AYUSH Dashavidha Rogi Pariksha / दशविध परीक्षा</span>
+          <span>AYUSH Dashavidha Rogi Pariksha</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          {selectedLanguage === 'hi' ? 'आयुर्वेदिक प्रकृति और रोगी परीक्षा' : selectedLanguage === 'ta' ? 'ஆயுர்வேத உடலமைப்பு மற்றும் நோயாளி பரிசோதனை' : selectedLanguage === 'te' ? 'ఆయుర్వేద ప్రకృతి మరియు రోగి పరీక్ష' : 'Ayurvedic Constitution & Rogi Pariksha'}
+          {selectedLanguage === 'te' ? 'ఆయుర్వేద ప్రకృతి మరియు రోగి పరీక్ష' : selectedLanguage === 'ta' ? 'ஆயுர்வேத உடலமைப்பு மற்றும் நோயாளி பரிசோதனை' : selectedLanguage === 'kn' ? 'ಆಯುರ್ವೇದ ಪ್ರಕೃತಿ ಮತ್ತು ರೋಗಿ ಪರೀಕ್ಷೆ' : selectedLanguage === 'ml' ? 'ആയുർവേദ പ്രകൃതിയും രോഗി പരീക്ഷയും' : selectedLanguage === 'mr' ? 'आयुर्वेदिक प्रकृती आणि रुग्ण परीक्षा' : 'Ayurvedic Constitution & Rogi Pariksha'}
         </h2>
         <p className="text-slate-600 text-sm sm:text-base mt-1">
-          प्रकृति, अग्नि, कोष्ठ, धातु सार व सत्व निर्धारण हेतु उपयुक्त विकल्प चुनें
+          {selectedLanguage === 'te' ? 'ప్రకృతి, అగ్ని, కోష్ఠ మరియు ధాతు నిర్ధారణ కోసం తగిన ఎంపికను ఎంచుకోండి' :
+           selectedLanguage === 'ta' ? 'உடலமைப்பு, செரிமானம் மற்றும் முக்கிய காரணிகளைத் தேர்ந்தெடுக்கவும்' :
+           selectedLanguage === 'kn' ? 'ಪ್ರಕೃತಿ, ಅಗ್ನಿ ಮತ್ತು ಧಾತು ನಿರ್ಧಾರಕ್ಕಾಗಿ ಸೂಕ್ತ ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ' :
+           selectedLanguage === 'ml' ? 'പ്രകൃതി, ദഹനം എന്നിവ വിലയിരുത്തുന്നതിന് അനുയോജ്യമായ ഓപ്ഷൻ തിരഞ്ഞെടുക്കുക' :
+           selectedLanguage === 'mr' ? 'प्रकृती, अग्नी, कोष्ठ व धातू सार निश्चितीसाठी योग्य पर्याय निवडा' :
+           'Select the appropriate options to assess Prakriti, Agni, Koshtha, and Dhatu Sara'}
         </p>
       </div>
 
@@ -210,7 +215,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
       <div className="stitch-card p-5 mb-6">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider">
-            Calculated Tridosha Constitution (प्रकृति अनुपात)
+            Calculated Tridosha Constitution
           </span>
           <span className="px-3 py-0.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-800 text-xs font-mono font-bold">
             Prakriti: {ayush.prakriti || 'Vata-Pitta'}
@@ -244,13 +249,13 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
 
         <div className="grid grid-cols-3 gap-2 mt-3 text-center text-xs">
           <div className="p-2 rounded-xl bg-violet-50 border border-violet-200 text-indigo-800 font-mono font-bold">
-            Vata: {vataPct}% (वात)
+            Vata: {vataPct}%
           </div>
           <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 font-mono font-bold">
-            Pitta: {pittaPct}% (पित्त)
+            Pitta: {pittaPct}%
           </div>
           <div className="p-2 rounded-xl bg-violet-50 border border-indigo-200 text-indigo-800 font-mono font-bold">
-            Kapha: {kaphaPct}% (कफ)
+            Kapha: {kaphaPct}%
           </div>
         </div>
       </div>
@@ -335,7 +340,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
 
               <div className="mt-5 pt-3 border-t border-[#1e2738] flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-400">
-                  {isSelected ? `✓ ${translate('continue', selectedLanguage)}` : selectedLanguage === 'hi' ? 'चुनने के लिए टैप करें' : selectedLanguage === 'ta' ? 'தேர்வு செய்யத் தட்டவும்' : selectedLanguage === 'te' ? 'ఎంచుకోవడానికి నొక్కండి' : 'Tap to select'}
+                  {isSelected ? `✓ ${translate('continue', selectedLanguage)}` : selectedLanguage === 'te' ? 'ఎంచుకోవడానికి నొక్కండి' : selectedLanguage === 'ta' ? 'தேர்வு செய்யத் தட்டவும்' : selectedLanguage === 'kn' ? 'ಆಯ್ಕೆ ಮಾಡಲು ಟ್ಯಾಪ್ ಮಾಡಿ' : selectedLanguage === 'ml' ? 'തിരഞ്ഞെടുക്കാൻ ടാപ്പുചെയ്യുക' : selectedLanguage === 'mr' ? 'निवडण्यासाठी टॅप करा' : 'Tap to select'}
                 </span>
                 <div
                   className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${
@@ -355,7 +360,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
         <div className="bg-[#0e121a]/95 border border-amber-500/30 rounded-3xl p-5 mb-6 shadow-xl">
           <h4 className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Utensils className="w-4 h-4" />
-            <span>Structured Ahara-Vihara (Diet & Lifestyle Diary)</span>
+            <span>Structured Ahara-Vihara (Diet &amp; Lifestyle Diary)</span>
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             {/* Meal Regularity */}
@@ -366,46 +371,46 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
                 onChange={(e) => handleAharaDetailChange('mealTimingRegularity', e.target.value)}
                 className="w-full bg-[#06080d] border border-[#1b2334] rounded-xl p-2 text-white"
               >
-                <option value="Regular">Regular (समय पर भोजन)</option>
-                <option value="Irregular">Irregular (अनियमित समय)</option>
-                <option value="Very Irregular">Very Irregular (विषमाशन)</option>
+                <option value="Regular">Regular</option>
+                <option value="Irregular">Irregular</option>
+                <option value="Very Irregular">Very Irregular</option>
               </select>
             </div>
 
             {/* Dominant Rasa */}
             <div>
-              <label className="block text-[11px] text-slate-300 font-bold mb-1">Taste Preference (प्रमुख रस)</label>
+              <label className="block text-[11px] text-slate-300 font-bold mb-1">Taste Preference (Rasa)</label>
               <select
                 value={ayush.aharaViharaDetails?.dominantRasa || 'Madhura (Sweet)'}
                 onChange={(e) => handleAharaDetailChange('dominantRasa', e.target.value)}
                 className="w-full bg-[#06080d] border border-[#1b2334] rounded-xl p-2 text-white"
               >
-                <option value="Madhura (Sweet)">Madhura / मधुर (Sweet)</option>
-                <option value="Amla (Sour)">Amla / अम्ल (Sour)</option>
-                <option value="Lavana (Salty)">Lavana / लवण (Salty)</option>
-                <option value="Katu (Pungent/Spicy)">Katu / कटु (Pungent/Spicy)</option>
-                <option value="Tikta (Bitter)">Tikta / तिक्त (Bitter)</option>
-                <option value="Kashaya (Astringent)">Kashaya / कषाय (Astringent)</option>
+                <option value="Madhura (Sweet)">Madhura (Sweet)</option>
+                <option value="Amla (Sour)">Amla (Sour)</option>
+                <option value="Lavana (Salty)">Lavana (Salty)</option>
+                <option value="Katu (Pungent/Spicy)">Katu (Pungent/Spicy)</option>
+                <option value="Tikta (Bitter)">Tikta (Bitter)</option>
+                <option value="Kashaya (Astringent)">Kashaya (Astringent)</option>
               </select>
             </div>
 
             {/* Sleep Pattern */}
             <div>
-              <label className="block text-[11px] text-slate-300 font-bold mb-1">Sleep Pattern (निद्रा)</label>
+              <label className="block text-[11px] text-slate-300 font-bold mb-1">Sleep Pattern (Nidra)</label>
               <select
                 value={ayush.aharaViharaDetails?.sleepPattern || 'Early Bird'}
                 onChange={(e) => handleAharaDetailChange('sleepPattern', e.target.value)}
                 className="w-full bg-[#06080d] border border-[#1b2334] rounded-xl p-2 text-white"
               >
-                <option value="Early Bird">Early to bed & rise (सम्यक)</option>
-                <option value="Night Owl">Late Night (रात्रि जागरण)</option>
-                <option value="Irregular">Disturbed / Insomnia (अनिद्रा)</option>
+                <option value="Early Bird">Early to bed &amp; rise</option>
+                <option value="Night Owl">Late Night</option>
+                <option value="Irregular">Disturbed / Insomnia</option>
               </select>
             </div>
 
             {/* Water Intake */}
             <div>
-              <label className="block text-[11px] text-slate-300 font-bold mb-1">Water Intake (जलपान)</label>
+              <label className="block text-[11px] text-slate-300 font-bold mb-1">Water Intake (Jalapana)</label>
               <select
                 value={ayush.aharaViharaDetails?.waterIntake || 'Moderate'}
                 onChange={(e) => handleAharaDetailChange('waterIntake', e.target.value)}
@@ -436,7 +441,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Tongue Capture */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
-              <p className="text-xs font-bold text-slate-900 mb-1">Capture Tongue Image (जिह्वा छायाचित्र)</p>
+              <p className="text-xs font-bold text-slate-900 mb-1">Capture Tongue Image (Jihva Pariksha)</p>
               <p className="text-[10px] text-slate-500 mb-3">Assist the Vaidya in observing coating and coloration</p>
 
               {ayush.jihvaImageUrl ? (
@@ -465,7 +470,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
 
             {/* Nadi Region Capture */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
-              <p className="text-xs font-bold text-slate-900 mb-1">Capture Wrist Region (नाड़ी अनुसंधान)</p>
+              <p className="text-xs font-bold text-slate-900 mb-1">Capture Wrist Region (Nadi Pariksha)</p>
               <p className="text-[10px] text-slate-500 mb-3">Radial artery zone photo for clinical record archival</p>
 
               {ayush.nadiImageUrl ? (

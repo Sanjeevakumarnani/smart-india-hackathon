@@ -101,10 +101,64 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     }
   };
 
+  // Content Management State (Chief Complaints & Languages)
+  const [complaintsList, setComplaintsList] = useState<any[]>([]);
+  const [languagesList, setLanguagesList] = useState<any[]>([]);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
+
+  const fetchContent = async () => {
+    setIsLoadingContent(true);
+    try {
+      const [cRes, lRes] = await Promise.all([
+        fetch('/api/chief-complaints'),
+        fetch('/api/languages'),
+      ]);
+      if (cRes.ok) {
+        const data = await cRes.json();
+        setComplaintsList(data);
+      }
+      if (lRes.ok) {
+        const data = await lRes.json();
+        setLanguagesList(data);
+      }
+    } catch {
+      // Fallback
+    } finally {
+      setIsLoadingContent(false);
+    }
+  };
+
+  const handleToggleComplaint = async (id: string, currentActive: boolean) => {
+    try {
+      await fetch(`/api/chief-complaints/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentActive }),
+      });
+      setComplaintsList(prev => prev.map(c => (c.id === id || c.complaint_key === id) ? { ...c, is_active: !currentActive ? 1 : 0 } : c));
+    } catch (e) {
+      console.warn('Failed to toggle complaint:', e);
+    }
+  };
+
+  const handleToggleLanguage = async (code: string, currentActive: boolean) => {
+    try {
+      await fetch(`/api/languages/${code}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !currentActive }),
+      });
+      setLanguagesList(prev => prev.map(l => l.code === code ? { ...l, is_active: !currentActive ? 1 : 0 } : l));
+    } catch (e) {
+      console.warn('Failed to toggle language:', e);
+    }
+  };
+
   useEffect(() => {
     fetchHealth();
     fetchUsers();
     fetchAnalytics();
+    fetchContent();
   }, []);
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -509,62 +563,122 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
           </div>
         )}
 
-        {/* 5. Content Management Tab */}
+        {/* 5. Content Management Tab (Connected to Live DB / inMemoryDb) */}
         {activeTab === 'content' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-xl font-bold text-white tracking-tight">Clinical Intake & Language Configuration</h2>
-              <p className="text-xs text-slate-400 mt-1">
-                Control active SOCRATES clinical questions, AYUSH examination attributes, and consent notices across 12 Indian languages.
-              </p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white tracking-tight">Clinical Intake & Language Configuration</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Manage master chief complaints, red-flag triggers, and active regional languages in real time.
+                </p>
+              </div>
+              <button
+                onClick={fetchContent}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-600 transition"
+              >
+                {isLoadingContent ? 'Refreshing...' : 'Refresh Content'}
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6">
-                <h3 className="text-base font-bold text-white flex items-center gap-2 mb-2">
-                  <FileQuestion className="w-5 h-5 text-teal-400" />
-                  <span>SOCRATES Protocol Question Bank</span>
-                </h3>
-                <p className="text-xs text-slate-400 mb-4">
-                  Configured across 8 chief complaints (Chest pain, Shortness of breath, Abdominal pain, etc.).
-                </p>
-                <div className="space-y-2 text-xs text-slate-300">
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-700 flex justify-between">
-                    <span>Chest Pain (Site, Onset, Character, Radiation, Associations, Timing, Exacerbating, Severity)</span>
-                    <span className="text-emerald-400 font-bold">Active</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-700 flex justify-between">
-                    <span>Breathlessness (Onset, Triggers, Orthopnea, Associated Cough)</span>
-                    <span className="text-emerald-400 font-bold">Active</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-700 flex justify-between">
-                    <span>Abdominal Pain (Quadrant, Food relationship, Bowel changes)</span>
-                    <span className="text-emerald-400 font-bold">Active</span>
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Chief Complaints Card */}
+              <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <FileQuestion className="w-5 h-5 text-teal-400" />
+                    <span>Chief Complaints Master ({complaintsList.length})</span>
+                  </h3>
+                  <span className="text-[11px] font-mono text-slate-400">Live Config</span>
+                </div>
+
+                <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+                  {complaintsList.map((cmp) => {
+                    const isActive = cmp.is_active !== undefined ? Boolean(cmp.is_active) : true;
+                    return (
+                      <div
+                        key={cmp.id || cmp.complaint_key}
+                        className="p-3 rounded-xl bg-slate-900/90 border border-slate-700/80 flex items-center justify-between gap-3"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-white truncate">
+                              {cmp.display_name_en || cmp.complaint_key}
+                            </span>
+                            {cmp.is_red_flag_trigger ? (
+                              <span className="px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 text-[9px] font-mono font-bold border border-rose-500/30">
+                                RED FLAG
+                              </span>
+                            ) : null}
+                            <span className="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 text-[9px] font-mono uppercase">
+                              {cmp.opd_type || 'both'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                            Key: {cmp.complaint_key} • TE: {cmp.display_name_te || '—'} • TA: {cmp.display_name_ta || '—'}
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={() => handleToggleComplaint(cmp.id || cmp.complaint_key, isActive)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/40'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-emerald-500/20 hover:text-emerald-400'
+                          }`}
+                        >
+                          {isActive ? 'Active' : 'Disabled'}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
-              <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6">
-                <h3 className="text-base font-bold text-white flex items-center gap-2 mb-2">
-                  <FileText className="w-5 h-5 text-indigo-400" />
-                  <span>DPDP Act 2023 Consent Modules</span>
-                </h3>
-                <p className="text-xs text-slate-400 mb-4">
-                  Multi-lingual consent disclosures for Demographics, Medical History, Document OCR, and ABDM linking.
-                </p>
-                <div className="space-y-2 text-xs text-slate-300">
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-700 flex justify-between">
-                    <span>Demographics & Identity Verification Notice</span>
-                    <span className="text-emerald-400 font-bold">12 Languages</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-700 flex justify-between">
-                    <span>Clinical AI & Audio Guidance Disclaimer</span>
-                    <span className="text-emerald-400 font-bold">12 Languages</span>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-700 flex justify-between">
-                    <span>ABHA M2 / M3 Health Record Sharing Consent</span>
-                    <span className="text-emerald-400 font-bold">12 Languages</span>
-                  </div>
+              {/* Supported Regional Languages Card */}
+              <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-indigo-400" />
+                    <span>Regional Languages ({languagesList.length})</span>
+                  </h3>
+                  <span className="text-[11px] font-mono text-slate-400">Strict 6 Kiosk Locales</span>
+                </div>
+
+                <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+                  {languagesList.map((lang) => {
+                    const isActive = lang.is_active !== undefined ? Boolean(lang.is_active) : true;
+                    return (
+                      <div
+                        key={lang.code}
+                        className="p-3 rounded-xl bg-slate-900/90 border border-slate-700/80 flex items-center justify-between gap-3"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xl">{lang.flag_emoji || '🇮🇳'}</span>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-white">{lang.name}</span>
+                              <span className="text-xs text-indigo-300 font-medium">({lang.native_name})</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              BCP-47: {lang.bcp47 || lang.code} • Code: {lang.code}
+                            </span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleToggleLanguage(lang.code, isActive)}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold transition shrink-0 ${
+                            isActive
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 hover:bg-rose-500/20 hover:text-rose-400 hover:border-rose-500/40'
+                              : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-emerald-500/20 hover:text-emerald-400'
+                          }`}
+                        >
+                          {isActive ? 'Active' : 'Disabled'}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

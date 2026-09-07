@@ -5,5 +5,6 @@ dev-dist/
 coverage/
 .DS_Store
 *.log
+*.jsonl
 .env
 !.env.example

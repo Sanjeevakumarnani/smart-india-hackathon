@@ -1,5 +1,6 @@
 import React from 'react';
 import { ArrowLeft, Clock, FileText, Calendar, Download, Stethoscope, Inbox } from 'lucide-react';
+import { jsPDF } from 'jspdf';
 import { PatientProfile, DigitizedDocument } from '../types';
 
 export const PatientPortalDashboard: React.FC<{
@@ -15,15 +16,15 @@ export const PatientPortalDashboard: React.FC<{
           const bundles = JSON.parse(saved);
           return bundles.map((b: any, idx: number) => ({
             id: b.id || `DOC-${idx + 1}`,
-            title: b.entry?.[0]?.resource?.title || 'OPD Clinical Encounter Report',
-            date: b.entry?.[0]?.resource?.date?.split('T')[0] || new Date().toISOString().split('T')[0],
-            documentType: 'discharge_summary' as const,
-            hospitalOrClinic: 'AIIMS / District OPD Centre',
-            doctorName: 'Attending Physician',
-            diagnoses: ['Consultation Summary'],
-            medications: [],
-            labValues: [],
-            rawOcrText: 'Digital Health Record synchronized with ABDM Health Locker.',
+            title: b.title || b.entry?.[0]?.resource?.title || 'OPD Clinical Encounter Report',
+            date: b.date?.split('T')[0] || b.entry?.[0]?.resource?.date?.split('T')[0] || new Date().toISOString().split('T')[0],
+            documentType: ((b.documentType || 'discharge_summary') as 'discharge_summary' | 'lab_report' | 'prescription' | 'imaging_report'),
+            hospitalOrClinic: b.hospitalOrClinic || 'AIIMS / District OPD Centre',
+            doctorName: b.doctorName || 'Attending Physician',
+            diagnoses: b.diagnoses || ['Consultation Summary'],
+            medications: b.medications || [],
+            labValues: b.labValues || [],
+            rawOcrText: b.rawOcrText || 'Digital Health Record synchronized with ABDM Health Locker.',
             abnormalCount: 0,
             isSample: false,
           }));
@@ -34,6 +35,88 @@ export const PatientPortalDashboard: React.FC<{
     }
     return [];
   });
+
+  const handleDownloadPdf = (docItem: DigitizedDocument) => {
+    if (!patient) return;
+    const pdf = new jsPDF();
+
+    // Header bar
+    pdf.setFillColor(67, 56, 202);
+    pdf.rect(0, 0, 210, 30, 'F');
+    pdf.setTextColor(255, 255, 255);
+    pdf.setFontSize(18);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('MediKiosk+ Ayushman Digital OPD', 14, 18);
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text('Official Clinical Encounter Summary & Record', 14, 25);
+
+    // Patient Information Block
+    pdf.setTextColor(30, 41, 59);
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Patient Information', 14, 42);
+
+    pdf.setDrawColor(226, 232, 240);
+    pdf.line(14, 45, 196, 45);
+
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Patient Name: ${patient.fullName}`, 14, 53);
+    pdf.text(`ABHA ID: ${patient.abhaId}`, 110, 53);
+    pdf.text(`Age / Gender: ${patient.age}Y / ${patient.gender}`, 14, 60);
+    pdf.text(`Contact: ${patient.phone || 'N/A'}`, 110, 60);
+    pdf.text(`Blood Group: ${patient.bloodGroup || 'N/A'}`, 14, 67);
+    pdf.text(`Encounter Date: ${docItem.date || new Date().toISOString().split('T')[0]}`, 110, 67);
+
+    // Clinical Summary Block
+    pdf.setFontSize(14);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Clinical Encounter Details', 14, 80);
+    pdf.line(14, 83, 196, 83);
+
+    pdf.setFontSize(10);
+    pdf.setFont('helvetica', 'normal');
+    pdf.text(`Document Title: ${docItem.title}`, 14, 91);
+    pdf.text(`Category: ${docItem.documentType.toUpperCase()}`, 110, 91);
+    pdf.text(`Facility: ${docItem.hospitalOrClinic}`, 14, 98);
+    pdf.text(`Attending Physician: ${docItem.doctorName}`, 110, 98);
+
+    // Vitals block
+    if (patient.vitals) {
+      pdf.setFontSize(12);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text('Recorded Vitals', 14, 112);
+      pdf.line(14, 115, 196, 115);
+
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Blood Pressure: ${patient.vitals.bpSystolic}/${patient.vitals.bpDiastolic} mmHg`, 14, 123);
+      pdf.text(`Heart Rate: ${patient.vitals.heartRate} bpm`, 75, 123);
+      pdf.text(`SpO2: ${patient.vitals.spO2}%`, 130, 123);
+      pdf.text(`Temperature: ${patient.vitals.temperature}°F`, 165, 123);
+    }
+
+    const textStartY = patient.vitals ? 138 : 112;
+    pdf.setFontSize(12);
+    pdf.setFont('helvetica', 'bold');
+    pdf.text('Clinical Record Transcript / Summary', 14, textStartY);
+    pdf.line(14, textStartY + 3, 196, textStartY + 3);
+
+    pdf.setFontSize(9);
+    pdf.setFont('helvetica', 'normal');
+    const splitNotes = pdf.splitTextToSize(
+      docItem.rawOcrText || 'Digital health record securely verified and synchronized with ABDM Health Locker under DPDP Act 2023.',
+      180
+    );
+    pdf.text(splitNotes, 14, textStartY + 12);
+
+    pdf.setFontSize(8);
+    pdf.setTextColor(148, 163, 184);
+    pdf.text('Digitally generated via MediKiosk+ Ayushman Digital OPD Kiosk System. DPDP Act 2023 Compliant.', 14, 285);
+
+    pdf.save(`MediKiosk_${docItem.id || 'Summary'}.pdf`);
+  };
 
   if (!patient) return null;
 
@@ -210,7 +293,7 @@ export const PatientPortalDashboard: React.FC<{
                         Print / View Full Record
                       </button>
                       <button
-                        onClick={() => window.print()}
+                        onClick={() => handleDownloadPdf(doc)}
                         className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-800 transition"
                       >
                         <Download className="w-3.5 h-3.5" />

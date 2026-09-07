@@ -73,6 +73,17 @@ export const WhatsAppContinuityModal: React.FC<WhatsAppContinuityModalProps> = (
     setExtraMessages(prev => [...prev, { sender: 'user', text, time: now }]);
     setChatInput('');
 
+    // Dispatch real backend notification call
+    fetch('/api/notifications/whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: patientProfile?.phone || '+919876543210',
+        message: text,
+        patientName: patientProfile?.fullName || 'Patient',
+      }),
+    }).catch((err) => console.warn('Notification dispatch notice:', err));
+
     setTimeout(() => {
       setExtraMessages(prev => [
         ...prev,
@@ -91,14 +102,28 @@ export const WhatsAppContinuityModal: React.FC<WhatsAppContinuityModalProps> = (
   const dosha = historyObject.ayush?.dominantDosha || historyObject.ayush?.prakriti || 'Vata-Pitta';
   const pathyaApathya = isAyush ? getPathyaApathya(dosha) : null;
 
-  const audioNoteText =
-    selectedLanguage === 'hi'
-      ? isAyush
-        ? `नमस्ते ${patientProfile?.fullName?.split(' ')[0] || ''} जी, वैद्य के परामर्श के अनुसार ${dosha} प्रकृति के लिए अपना आहार-विहार व्यवस्थित रखें।`
-        : `नमस्ते ${patientProfile?.fullName?.split(' ')[0] || ''} जी, डॉक्टर के परामर्श के अनुसार अपनी दवाइयां समय पर लें और सीने में भारीपन महसूस होने पर तुरंत इमरजेंसी में संपर्क करें।`
-      : isAyush
-      ? `Hello ${patientProfile?.fullName?.split(' ')[0] || 'Patient'}, please follow the dietary and lifestyle guidelines prescribed for your ${dosha} constitution.`
-      : `Hello ${patientProfile?.fullName?.split(' ')[0] || 'Patient'}, kindly follow your post-consult prescription schedule and avoid heavy physical exertion. In case of recurring chest tightness, report directly to emergency triage.`;
+  const patientFirstName = patientProfile?.fullName?.split(' ')[0] || 'Patient';
+  const regionalAudioNotes: Record<LanguageCode, string> = {
+    te: isAyush
+      ? `నమస్కారం ${patientFirstName} గారు, వైద్యుల సలహా ప్రకారం మీ ${dosha} శరీరతత్వానికి తగిన ఆహార నియమాలను పాటించండి.`
+      : `నమస్కారం ${patientFirstName} గారు, డాక్టర్ సూచించిన విధంగా మీ మందులను సమయానికి తీసుకోండి. ఏదైనా అత్యవసరమైతే వెంటనే సంప్రదించండి.`,
+    ta: isAyush
+      ? `வணக்கம் ${patientFirstName} அவர்களே, மருத்துவர் ஆலோசனைப்படி உங்கள் ${dosha} உடலமைப்பிற்கு ஏற்ற உணவு முறைகளைப் பின்பற்றுங்கள்.`
+      : `வணக்கம் ${patientFirstName} அவர்களே, மருத்துவரின் பரிந்துரைப்படி உங்கள் மருந்துகளை சரியான நேரத்தில் எடுத்துக் கொள்ளுங்கள்.`,
+    kn: isAyush
+      ? `ನಮಸ್ಕಾರ ${patientFirstName} ಅವರೇ, ವೈದ್ಯರ ಸಲಹೆಯಂತೆ ನಿಮ್ಮ ${dosha} ಪ್ರಕೃತಿಗೆ ಸೂಕ್ತವಾದ ಆಹಾರ ನಿಯಮಗಳನ್ನು ಪಾಲಿಸಿ.`
+      : `ನಮಸ್ಕಾರ ${patientFirstName} ಅವರೇ, ವೈದ್ಯರ ಸೂಚನೆಯಂತೆ ನಿಮ್ಮ ಔಷಧಿಗಳನ್ನು ಸರಿಯಾದ ಸಮಯಕ್ಕೆ ಸೇವಿಸಿ.`,
+    ml: isAyush
+      ? `നമസ്കാരം ${patientFirstName}, ഡോക്ടറുടെ നിർദ്ദേശപ്രകാരം നിങ്ങളുടെ ${dosha} പ്രകൃതിക്ക് അനുയോജ്യമായ ഭക്ഷണശീലങ്ങൾ പാലിക്കുക.`
+      : `നമസ്കാരം ${patientFirstName}, ഡോക്ടറുടെ നിർദ്ദേശപ്രകാരം നിങ്ങളുടെ മരുന്നുകൾ കൃത്യസമയത്ത് കഴിക്കുക.`,
+    mr: isAyush
+      ? `नमस्कार ${patientFirstName} जी, वैद्यांच्या सल्ल्यानुसार तुमच्या ${dosha} प्रकृतीसाठी योग्य आहार-विहार पाळा.`
+      : `नमस्कार ${patientFirstName} जी, डॉक्टरांच्या सल्ल्यानुसार आपली औषधे वेळेवर घ्या.`,
+    en: isAyush
+      ? `Hello ${patientFirstName}, please follow the dietary and lifestyle guidelines prescribed for your ${dosha} constitution.`
+      : `Hello ${patientFirstName}, kindly follow your post-consult prescription schedule and avoid heavy physical exertion. In case of recurring chest tightness, report directly to emergency triage.`,
+  };
+  const audioNoteText = regionalAudioNotes[selectedLanguage] || regionalAudioNotes.en;
 
   const togglePlayAudio = () => {
     if (isPlayingAudio) {

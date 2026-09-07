@@ -85,13 +85,33 @@ export const ConsentScreen: React.FC<ConsentScreenProps> = ({
       <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <ShieldCheck className="w-4 h-4 text-indigo-600" />
-          <span>Step 1b: DPDP Patient Consent / सहमति पत्र</span>
+          <span>Step 1b: DPDP Patient Consent</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          {selectedLanguage === 'hi' ? 'डेटा गोपनीयता और चिकित्सा सहमति' : selectedLanguage === 'ta' ? 'தரவு தனியுரிமை மற்றும் மருத்துவ ஒப்புதல்' : selectedLanguage === 'te' ? 'డేటా గోప్యత మరియు వైద్య సమ్మతి' : 'Data Privacy & Medical Consent'}
+          {selectedLanguage === 'ta'
+            ? 'தரவு தனியுரிமை மற்றும் மருத்துவ ஒப்புதல்'
+            : selectedLanguage === 'te'
+            ? 'డేటా గోప్యత మరియు వైద్య సమ్మతి'
+            : selectedLanguage === 'kn'
+            ? 'ಡೇಟಾ ಗೌಪ್ಯತೆ ಮತ್ತು ವೈದ್ಯಕೀಯ ಒಪ್ಪಿಗೆ'
+            : selectedLanguage === 'ml'
+            ? 'ഡാറ്റ സ്വകാര്യതയും മെഡിക്കൽ സമ്മതവും'
+            : selectedLanguage === 'mr'
+            ? 'डेटा गोपनीयता आणि वैद्यकीय संमती'
+            : 'Data Privacy & Medical Consent'}
         </h2>
         <p className="text-slate-600 text-sm sm:text-base mt-1">
-          डिजिटल पर्सनल डेटा प्रोटेक्शन (DPDP) एक्ट एवं ABDM दिशानिर्देशों के तहत सहमति
+          {selectedLanguage === 'ta'
+            ? 'டிஜிட்டல் தனிநபர் தரவு பாதுகாப்பு (DPDP) சட்டம் மற்றும் ABDM வழிகாட்டுதல்களின் கீழ் ஒப்புதல்'
+            : selectedLanguage === 'te'
+            ? 'డిజిటల్ పర్సనల్ డేటా ప్రొటెక్షన్ (DPDP) చట్టం మరియు ABDM మార్గదర్శకాల ప్రకారం సమ్మతి'
+            : selectedLanguage === 'kn'
+            ? 'ಡಿಜಿಟಲ್ ವೈಯಕ್ತಿಕ ಡೇಟಾ ರಕ್ಷಣೆ (DPDP) ಕಾಯ್ದೆ ಮತ್ತು ABDM ಮಾರ್ಗಸೂಚಿಗಳ ಅಡಿಯಲ್ಲಿ ಒಪ್ಪಿಗೆ'
+            : selectedLanguage === 'ml'
+            ? 'ഡിജിറ്റൽ വ്യക്തിഗത ഡാറ്റാ പരിരക്ഷ (DPDP) നിയമത്തിന്റെയും ABDM മാർഗ്ഗനിർദ്ദേശങ്ങളുടെയും കീഴിലുള്ള സമ്മതം'
+            : selectedLanguage === 'mr'
+            ? 'डिजिटल वैयक्तिक डेटा संरक्षण (DPDP) कायदा आणि ABDM मार्गदर्शक तत्त्वांतर्गत संमती'
+            : 'Consent in compliance with Digital Personal Data Protection (DPDP) Act 2023 & ABDM'}
         </p>
       </div>
 

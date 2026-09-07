@@ -18,7 +18,7 @@ import { translate } from '../services/i18n';
 interface Complaint {
   id: string;
   title: string;
-  titleHi: string;
+  regionalTitles: Partial<Record<LanguageCode, string>>;
   icon: string;
   color: string;
   badge: string;
@@ -42,7 +42,6 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
   onSelectComplaint,
   onContinue,
   onBack,
-  selectedLanguage: _selectedLanguage,
   selectedLanguage,
 }) => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
@@ -60,7 +59,13 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
         const mapped = data.map((item) => ({
           id: item.complaint_key,
           title: item.display_name_en,
-          titleHi: item.display_name_hi,
+          regionalTitles: {
+            te: item.display_name_te,
+            ta: item.display_name_ta,
+            kn: item.display_name_kn,
+            ml: item.display_name_ml,
+            mr: item.display_name_mr,
+          },
           icon: item.icon,
           color: item.color_class,
           badge: item.opd_type.toUpperCase(),
@@ -191,9 +196,11 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
                   <h3 className="text-lg font-extrabold text-slate-900 leading-snug">
                     {comp.title}
                   </h3>
-                  <p className="text-sm font-semibold text-slate-600 mt-1">
-                    {comp.titleHi}
-                  </p>
+                  {selectedLanguage !== 'en' && comp.regionalTitles[selectedLanguage] && (
+                    <p className="text-sm font-semibold text-indigo-700 mt-1">
+                      {comp.regionalTitles[selectedLanguage]}
+                    </p>
+                  )}
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">

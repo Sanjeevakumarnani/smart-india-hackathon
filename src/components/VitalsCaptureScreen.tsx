@@ -15,7 +15,7 @@ interface VitalsCaptureScreenProps {
 type VitalField = {
   key: keyof PatientProfile['vitals'] & string;
   label: string;
-  labelHi: string;
+  regionalLabels: Record<LanguageCode, string>;
   unit: string;
   min: number;
   max: number;
@@ -30,7 +30,14 @@ const VITAL_FIELDS: VitalField[] = [
   {
     key: 'bpSystolic',
     label: 'Blood Pressure (Systolic)',
-    labelHi: 'रक्तचाप (ऊपरी)',
+    regionalLabels: {
+      en: 'Blood Pressure (Upper)',
+      te: 'రక్తపోటు (పై భాగం)',
+      ta: 'இரத்த அழுத்தம் (மேல்)',
+      kn: 'ರಕ್ತದೊತ್ತಡ (ಮೇಲ್ಭಾಗ)',
+      ml: 'രക്തസമ്മർദ്ദം (മുകൾ)',
+      mr: 'रक्तदाब (सिस्टोलिक)',
+    },
     unit: 'mmHg',
     min: 70,
     max: 200,
@@ -43,7 +50,14 @@ const VITAL_FIELDS: VitalField[] = [
   {
     key: 'bpDiastolic',
     label: 'Blood Pressure (Diastolic)',
-    labelHi: 'रक्तचाप (निचला)',
+    regionalLabels: {
+      en: 'Blood Pressure (Lower)',
+      te: 'రక్తపోటు (కింది భాగం)',
+      ta: 'இரத்த அழுத்தம் (கீழ்)',
+      kn: 'ರಕ್ತದೊತ್ತಡ (ಕೆಳಭಾಗ)',
+      ml: 'രക്തസമ്മർദ്ദം (താഴത്തെ)',
+      mr: 'रक्तदाब (डायस्टोलिक)',
+    },
     unit: 'mmHg',
     min: 40,
     max: 130,
@@ -56,7 +70,14 @@ const VITAL_FIELDS: VitalField[] = [
   {
     key: 'heartRate',
     label: 'Heart Rate / Pulse',
-    labelHi: 'हृदय गति / नाड़ी',
+    regionalLabels: {
+      en: 'Heart Rate / Pulse',
+      te: 'గుండె వేగం / నాడి',
+      ta: 'இதய துடிப்பு / நாடி',
+      kn: 'ಹೃದಯ ಬಡಿತ / ನಾಡಿ',
+      ml: 'ഹൃദയമിടിപ്പ് / നാഡി',
+      mr: 'हृदयाचे ठोके / नाडी',
+    },
     unit: 'bpm',
     min: 40,
     max: 180,
@@ -69,7 +90,14 @@ const VITAL_FIELDS: VitalField[] = [
   {
     key: 'spO2',
     label: 'Oxygen Saturation (SpO₂)',
-    labelHi: 'ऑक्सीजन स्तर (SpO₂)',
+    regionalLabels: {
+      en: 'Oxygen Saturation',
+      te: 'ఆక్సిజన్ స్థాయి (SpO₂)',
+      ta: 'ஆக்ஸிஜன் அளவு (SpO₂)',
+      kn: 'ಆಮ್ಲಜನಕ ಮಟ್ಟ (SpO₂)',
+      ml: 'ഓക്സിജൻ അളവ് (SpO₂)',
+      mr: 'ऑक्सिजन पातळी (SpO₂)',
+    },
     unit: '%',
     min: 70,
     max: 100,
@@ -82,7 +110,14 @@ const VITAL_FIELDS: VitalField[] = [
   {
     key: 'temperature',
     label: 'Body Temperature',
-    labelHi: 'शरीर का तापमान',
+    regionalLabels: {
+      en: 'Body Temperature',
+      te: 'శరీర ఉష్ణోగ్రత',
+      ta: 'உடல் வெப்பநிலை',
+      kn: 'ದೇಹದ ಉಷ್ಣತೆ',
+      ml: 'ശരീര താപനില',
+      mr: 'शरीराचे तापमान',
+    },
     unit: '°F',
     min: 95,
     max: 108,
@@ -95,7 +130,14 @@ const VITAL_FIELDS: VitalField[] = [
   {
     key: 'weight',
     label: 'Body Weight',
-    labelHi: 'शरीर का वजन',
+    regionalLabels: {
+      en: 'Body Weight',
+      te: 'శరీర బరువు',
+      ta: 'உடல் எடை',
+      kn: 'ದೇಹದ ತೂಕ',
+      ml: 'ശരീരഭാരം',
+      mr: 'शरीराचे वजन',
+    },
     unit: 'kg',
     min: 10,
     max: 200,
@@ -120,8 +162,7 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
   onUpdateProfile,
   onContinue,
   onBack,
-  selectedLanguage: _selectedLanguage,
-    selectedLanguage,
+  selectedLanguage,
   isAudioNarration: _isAudioNarration,
 }) => {
   const initVitals = patientProfile?.vitals || {};
@@ -163,11 +204,22 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
       <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <Activity className="w-4 h-4 text-indigo-600" />
-          <span>Step 2b: Vitals Capture / स्वास्थ्य मापांक</span>
+          <span>Step 2b: Vitals Capture</span>
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">Record Your Vitals</h2>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{translate('recordVitals', selectedLanguage)}</h2>
-        <p className="text-slate-600 text-sm mt-1">स्वास्थ्य मापन यंत्र द्वारा दर्ज करें — या अज्ञात होने पर छोड़ें</p>
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{translate('recordVitals', selectedLanguage)}</h2>
+        <p className="text-slate-600 text-sm mt-1">
+          {selectedLanguage === 'ta'
+            ? 'மருத்துவ அளவீடுகளை பதிவு செய்யவும் அல்லது தெரியவில்லை என்றால் தவிர்க்கவும்'
+            : selectedLanguage === 'te'
+            ? 'ఆరోగ్య కొలతలను నమోదు చేయండి లేదా తెలియకపోతే వదిలివేయండి'
+            : selectedLanguage === 'kn'
+            ? 'ಆರೋಗ್ಯ ಅಳತೆಗಳನ್ನು ನಮೂದಿಸಿ ಅಥವಾ ತಿಳಿಯದಿದ್ದರೆ ಬಿಟ್ಟುಬಿಡಿ'
+            : selectedLanguage === 'ml'
+            ? 'ആരോഗ്യ അളവുകൾ രേഖപ്പെടുത്തുക അല്ലെങ്കിൽ അറിയില്ലെങ്കിൽ ഒഴിവാക്കുക'
+            : selectedLanguage === 'mr'
+            ? 'आरोग्य मोजमाप नोंदवा किंवा माहित नसल्यास वगळा'
+            : 'Enter measurement from connected medical devices or skip if unavailable'}
+        </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
@@ -186,7 +238,7 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
                   </div>
                   <div>
                     <p className="text-xs font-bold text-slate-900 leading-tight">{field.label}</p>
-                    <p className="text-[10px] text-slate-500">{field.labelHi}</p>
+                    <p className="text-[10px] text-slate-500">{field.regionalLabels[selectedLanguage] || field.regionalLabels.en}</p>
                   </div>
                 </div>
                 <button

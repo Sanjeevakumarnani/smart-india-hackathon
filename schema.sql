@@ -79,7 +79,9 @@ CREATE TABLE chief_complaints (
   display_name_hi VARCHAR(255),
   display_name_ta VARCHAR(255),
   display_name_te VARCHAR(255),
+  display_name_kn VARCHAR(255),
   display_name_ml VARCHAR(255),
+  display_name_mr VARCHAR(255),
   icon VARCHAR(50),
   color_class VARCHAR(100),
   opd_type ENUM('allopathic', 'ayurveda', 'both') DEFAULT 'both',
@@ -314,32 +316,22 @@ ON DUPLICATE KEY UPDATE display_name=VALUES(display_name);
 
 INSERT INTO supported_languages (id, code, name, native_name, bcp47, flag_emoji, sort_order) VALUES
 ('lang-en', 'en', 'English', 'English', 'en-IN', '🇬🇧', 1),
-('lang-hi', 'hi', 'Hindi', 'हिन्दी', 'hi-IN', '🇮🇳', 2),
 ('lang-te', 'te', 'Telugu', 'తెలుగు', 'te-IN', '🇮🇳', 2),
 ('lang-ta', 'ta', 'Tamil', 'தமிழ்', 'ta-IN', '🇮🇳', 3),
-('lang-te', 'te', 'Telugu', 'తెలుగు', 'te-IN', '🇮🇳', 4),
-('lang-kn', 'kn', 'Kannada', 'ಕನ್ನಡ', 'kn-IN', '🇮🇳', 5),
-('lang-ml', 'ml', 'Malayalam', 'മലയാളം', 'ml-IN', '🇮🇳', 6),
-('lang-mr', 'mr', 'Marathi', 'मराठी', 'mr-IN', '🇮🇳', 7),
-('lang-bn', 'bn', 'Bengali', 'বাংলা', 'bn-IN', '🇮🇳', 8),
-('lang-gu', 'gu', 'Gujarati', 'ગુજરાતી', 'gu-IN', '🇮🇳', 9),
-('lang-pa', 'pa', 'Punjabi', 'ਪੰਜਾਬੀ', 'pa-IN', '🇮🇳', 10),
-('lang-or', 'or', 'Odia', 'ଓଡ଼ିଆ', 'or-IN', '🇮🇳', 11),
-('lang-as', 'as', 'Assamese', 'অসমীয়া', 'as-IN', '🇮🇳', 12)
 ('lang-kn', 'kn', 'Kannada', 'ಕನ್ನಡ', 'kn-IN', '🇮🇳', 4),
 ('lang-ml', 'ml', 'Malayalam', 'മലയാളം', 'ml-IN', '🇮🇳', 5),
 ('lang-mr', 'mr', 'Marathi', 'मराठी', 'mr-IN', '🇮🇳', 6)
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
-INSERT INTO chief_complaints (id, complaint_key, display_name_en, display_name_hi, icon, color_class, opd_type, is_red_flag_trigger, sort_order) VALUES
-('cmp-01', 'chest_pain', 'Chest Pain / Discomfort', 'सीने में दर्द या भारीपन', 'Activity', 'text-rose-600 bg-rose-50 border-rose-200', 'both', TRUE, 1),
-('cmp-02', 'breathlessness', 'Shortness of Breath', 'सांस लेने में तकलीफ', 'Wind', 'text-amber-600 bg-amber-50 border-amber-200', 'both', TRUE, 2),
-('cmp-03', 'abdominal_pain', 'Abdominal Pain / Acidity', 'पेट दर्द या गैस/एसिडिटी', 'ShieldAlert', 'text-orange-600 bg-orange-50 border-orange-200', 'both', FALSE, 3),
-('cmp-04', 'joint_pain', 'Joint / Knee Pain (Sandhivata)', 'जोड़ों का दर्द / गठिया', 'Bone', 'text-blue-600 bg-blue-50 border-blue-200', 'ayurveda', FALSE, 4),
-('cmp-05', 'fever_chills', 'Fever & Chills', 'बुखार और ठंड लगना', 'Thermometer', 'text-red-500 bg-red-50 border-red-200', 'allopathic', FALSE, 5),
-('cmp-06', 'headache_dizzy', 'Severe Headache or Dizziness', 'गंभीर सिरदर्द या चक्कर', 'Zap', 'text-purple-600 bg-purple-50 border-purple-200', 'both', FALSE, 6),
-('cmp-07', 'skin_rash', 'Skin Rash / Itching (Kushtha)', 'त्वचा रोग / खुजली', 'Sparkles', 'text-emerald-600 bg-emerald-50 border-emerald-200', 'ayurveda', FALSE, 7),
-('cmp-08', 'digestive_issues', 'Indigestion / Constipation (Agni Mandya)', 'अपच या कब्ज', 'Apple', 'text-teal-600 bg-teal-50 border-teal-200', 'ayurveda', FALSE, 8)
+INSERT INTO chief_complaints (id, complaint_key, display_name_en, display_name_hi, display_name_te, display_name_ta, display_name_kn, display_name_ml, display_name_mr, icon, color_class, opd_type, is_red_flag_trigger, sort_order) VALUES
+('cmp-01', 'chest_pain', 'Chest Pain / Discomfort', 'सीने में दर्द या भारीपन', 'ఛాతీ నొప్పి / అసౌకర్యం', 'மார்பு வலி / அசௌகரியம்', 'ಎದೆ ನೋವು / ಅಸ್ವಸ್ಥತೆ', 'നെഞ്ചുവേദന / അസ്വസ്ഥത', 'छातीत दुखणे / अस्वस्थता', 'Activity', 'text-rose-600 bg-rose-50 border-rose-200', 'both', TRUE, 1),
+('cmp-02', 'breathlessness', 'Shortness of Breath', 'सांस लेने में तकलीफ', 'శ్వాస ఆడకపోవడం', 'மூச்சுத்திணறல்', 'ಉಸಿರಾಟದ ತೊಂದರೆ', 'ശ്വാസമെടുക്കാൻ ബുദ്ധിമുട്ട്', 'श्वास घेण्यास त्रास', 'Wind', 'text-amber-600 bg-amber-50 border-amber-200', 'both', TRUE, 2),
+('cmp-03', 'abdominal_pain', 'Abdominal Pain / Acidity', 'पेट दर्द या गैस/एसिडिटी', 'కడుపు నొప్పి / ఎసిడిటీ', 'வயிற்று வலி / அசிடிட்டி', 'ಹೊಟ್ಟೆ ನೋವು / ಆಮ್ಲೀಯತೆ', 'വയറുവേദന / അസിഡിറ്റി', 'पोटदुखी / ॲसिडिटी', 'ShieldAlert', 'text-orange-600 bg-orange-50 border-orange-200', 'both', FALSE, 3),
+('cmp-04', 'joint_pain', 'Joint / Knee Pain (Sandhivata)', 'जोड़ों का दर्द / गठिया', 'కీళ్ల / మోకాలి నొప్పి', 'மூட்டு / முழங்கால் வலி', 'ಕೀಲು / ಮೊಣಕಾಲು ನೋವು', 'സന്ധി / കാൽമുട്ട് വേദന', 'सांधेदुखी / गुडघेदुखी', 'Bone', 'text-blue-600 bg-blue-50 border-blue-200', 'ayurveda', FALSE, 4),
+('cmp-05', 'fever_chills', 'Fever & Chills', 'बुखार और ठंड लगना', 'జ్వరం మరియు చలి', 'காய்ச்சல் மற்றும் குளிர்', 'ಜ್ವರ ಮತ್ತು ಚಳಿ', 'പനിയും വിറയലും', 'ताप आणि थंडी', 'Thermometer', 'text-red-500 bg-red-50 border-red-200', 'allopathic', FALSE, 5),
+('cmp-06', 'headache_dizzy', 'Severe Headache or Dizziness', 'गंभीर सिरदर्द या चक्कर', 'తీవ్రమైన తలనొప్పి లేదా మైకం', 'கடுமையான தலைவலி அல்லது தலைச்சுற்றல்', 'ತೀವ್ರ ತಲೆನೋವು ಅಥವಾ ತಲೆತಿರುಗುವಿಕೆ', 'കഠിനമായ തലവേദന അല്ലെങ്കിൽ തലകറക്കം', 'तीव्र डोकेदुखी किंवा चक्कर', 'Zap', 'text-purple-600 bg-purple-50 border-purple-200', 'both', FALSE, 6),
+('cmp-07', 'skin_rash', 'Skin Rash / Itching (Kushtha)', 'त्वचा रोग / खुजली', 'చర్మంపై దద్దుర్లు / దురద', 'தோல் வெடிப்பு / அரிப்பு', 'ಚರ್ಮದ ದದ್ದು / ತುರಿಕೆ', 'ത്വക്ക് തിണർപ്പ് / ചൊറിച്ചിൽ', 'त्वचेवर पुरळ / खाज', 'Sparkles', 'text-emerald-600 bg-emerald-50 border-emerald-200', 'ayurveda', FALSE, 7),
+('cmp-08', 'digestive_issues', 'Indigestion / Constipation (Agni Mandya)', 'अपच या कब्ज', 'అజీర్ణం / మలబద్ధకం', 'செரிமானமின்மை / மலச்சிக்கல்', 'ಅಜೀರ್ಣ / ಮಲಬದ್ಧತೆ', 'ദഹനക്കേട് / മലബന്ധം', 'अपचन / बद्धकोष्ठता', 'Apple', 'text-teal-600 bg-teal-50 border-teal-200', 'ayurveda', FALSE, 8)
 ON DUPLICATE KEY UPDATE display_name_en=VALUES(display_name_en);
 
 -- ----------------------------------------------------------

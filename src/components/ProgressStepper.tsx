@@ -30,7 +30,6 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'IDENTITY' as KioskStep,
       related: ['LANGUAGE', 'CONSENT', 'IDENTITY', 'VITALS'],
       label: translate('stepIdentify', language),
-      labelHi: 'पहचान (ABHA)',
       icon: UserCheck,
     },
     {
@@ -38,15 +37,13 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'CONVERSATION' as KioskStep,
       related: ['COMPLAINT_SELECT', 'CONVERSATION'],
       label: translate('stepConverse', language),
-      labelHi: 'लक्षण संवाद',
       icon: MessageSquarePlus,
     },
     {
       id: 'step-3',
       key: opdType === 'ayurveda' ? 'AYUSH_PARIKSHA' as KioskStep : 'FAMILY_HISTORY' as KioskStep,
       related: ['FAMILY_HISTORY', 'AYUSH_PARIKSHA'],
-      label: opdType === 'ayurveda' ? `3. ${language === 'hi' ? 'आयुष परीक्षा' : 'AYUSH Pariksha'}` : translate('stepHistory', language),
-      labelHi: opdType === 'ayurveda' ? 'दशविध परीक्षा' : 'पारिवारिक इतिहास',
+      label: opdType === 'ayurveda' ? '3. AYUSH Pariksha' : translate('stepHistory', language),
       icon: opdType === 'ayurveda' ? Stethoscope : Users,
     },
     {
@@ -54,7 +51,6 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'DOC_SCAN' as KioskStep,
       related: ['DOC_SCAN'],
       label: translate('stepScanDocs', language),
-      labelHi: 'दस्तावेज़ स्कैन',
       icon: FileSearch,
     },
     {
@@ -62,7 +58,6 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'SESSION_PURGE' as KioskStep,
       related: ['SESSION_PURGE'],
       label: translate('stepPrivacy', language),
-      labelHi: 'डेटा सुरक्षा',
       icon: ShieldCheck,
     },
     {
@@ -70,7 +65,6 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'SUMMARY_REVIEW' as KioskStep,
       related: ['SUMMARY_REVIEW', 'PHYSICIAN_CONSOLE'],
       label: translate('stepSummary', language),
-      labelHi: 'सारांश व टोकन',
       icon: CheckCircle2,
     },
   ];
@@ -136,9 +130,6 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
                     }`}
                   >
                     {s.label}
-                  </p>
-                  <p className="text-[9px] sm:text-[10px] text-slate-400 font-medium leading-none">
-                    {s.labelHi}
                   </p>
                 </div>
               </div>

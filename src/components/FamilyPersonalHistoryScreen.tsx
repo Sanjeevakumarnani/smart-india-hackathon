@@ -27,13 +27,90 @@ const DEFAULT_PERSONAL: PersonalHistory = {
   alcoholUse: 'None',
 };
 
-const FAMILY_CONDITIONS: { key: keyof FamilyHistory; label: string; labelHi: string; emoji: string }[] = [
-  { key: 'diabetes', label: 'Diabetes Mellitus', labelHi: 'मधुमेह (शुगर)', emoji: '🩸' },
-  { key: 'hypertension', label: 'Hypertension (High BP)', labelHi: 'उच्च रक्तचाप', emoji: '💉' },
-  { key: 'heartDisease', label: 'Heart Disease / CAD', labelHi: 'हृदय रोग', emoji: '❤️' },
-  { key: 'cancer', label: 'Cancer (Any type)', labelHi: 'कैंसर', emoji: '🔬' },
-  { key: 'kidneyDisease', label: 'Kidney Disease / CKD', labelHi: 'गुर्दे की बीमारी', emoji: '🫘' },
-  { key: 'thyroid', label: 'Thyroid Disorder', labelHi: 'थायरॉयड', emoji: '🦋' },
+const FAMILY_CONDITIONS: {
+  key: keyof FamilyHistory;
+  label: string;
+  regionalLabels: Record<LanguageCode, string>;
+  emoji: string;
+}[] = [
+  {
+    key: 'diabetes',
+    label: 'Diabetes Mellitus',
+    regionalLabels: {
+      en: 'Diabetes (Blood Sugar)',
+      te: 'మధుమేహం (షుగర్)',
+      ta: 'நீரிழிவு நோய் (சர்க்கரை)',
+      kn: 'ಮಧುಮೇಹ (ಸಕ್ಕರೆ ಕಾಯಿಲೆ)',
+      ml: 'പ്രമേഹം (ഷുഗർ)',
+      mr: 'मधुमेह (डायबेटिस)',
+    },
+    emoji: '🩸',
+  },
+  {
+    key: 'hypertension',
+    label: 'Hypertension (High BP)',
+    regionalLabels: {
+      en: 'High Blood Pressure',
+      te: 'రక్తపోటు (హై బీపీ)',
+      ta: 'உயர் இரத்த அழுத்தம்',
+      kn: 'ಅಧಿಕ ರಕ್ತದೊತ್ತಡ (ಹೈ ಬಿಪಿ)',
+      ml: 'രക്താതിമർദ്ദം (ഹൈ ബിപി)',
+      mr: 'उच्च रक्तदाब (हाय बीपी)',
+    },
+    emoji: '💉',
+  },
+  {
+    key: 'heartDisease',
+    label: 'Heart Disease / CAD',
+    regionalLabels: {
+      en: 'Heart Attack / CAD',
+      te: 'గుండె జబ్బులు',
+      ta: 'இதய நோய்',
+      kn: 'ಹೃದಯ ರೋಗ',
+      ml: 'ഹൃദ്രോഗം',
+      mr: 'हृदयविकार',
+    },
+    emoji: '❤️',
+  },
+  {
+    key: 'cancer',
+    label: 'Cancer (Any type)',
+    regionalLabels: {
+      en: 'Cancer History',
+      te: 'క్యాన్సర్',
+      ta: 'புற்றுநோய்',
+      kn: 'ಕ್ಯಾನ್ಸರ್',
+      ml: 'കാൻസർ',
+      mr: 'कर्करोग (कॅन्सर)',
+    },
+    emoji: '🔬',
+  },
+  {
+    key: 'kidneyDisease',
+    label: 'Kidney Disease / CKD',
+    regionalLabels: {
+      en: 'Kidney / Renal Disease',
+      te: 'మూత్రపిండాల వ్యాధి',
+      ta: 'சிறுநீரக நோய்',
+      kn: 'ಮೂತ್ರಪಿಂಡ ಕಾಯಿಲೆ',
+      ml: 'വൃക്കരോഗം',
+      mr: 'मूत्रपिंडाचा आजार',
+    },
+    emoji: '🫘',
+  },
+  {
+    key: 'thyroid',
+    label: 'Thyroid Disorder',
+    regionalLabels: {
+      en: 'Thyroid Disorder',
+      te: 'థైరాయిడ్ సమస్య',
+      ta: 'தைராய்டு கோளாறு',
+      kn: 'ಥೈರಾಯ್ಡ್ ಸಮಸ್ಯೆ',
+      ml: 'തൈറോയ്ഡ് തകരാറ്',
+      mr: 'थायरॉईड विकार',
+    },
+    emoji: '🦋',
+  },
 ];
 
 export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> = ({
@@ -78,17 +155,36 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
       <div className="text-center mb-6">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <Users className="w-4 h-4 text-indigo-600" />
-          <span>Family &amp; Personal History / पारिवारिक व व्यक्तिगत इतिहास</span>
+          <span>Family &amp; Personal History</span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{translate('familyHistory', selectedLanguage)}</h2>
-        <p className="text-slate-600 text-sm mt-1">परिवार में बीमारियाँ और व्यक्तिगत आदतें बताएं</p>
+        <p className="text-slate-600 text-sm mt-1">
+          {selectedLanguage === 'ta'
+            ? 'குடும்பத்தில் உள்ள நோய்கள் மற்றும் தனிப்பட்ட பழக்கவழக்கங்களை குறிப்பிடவும்'
+            : selectedLanguage === 'te'
+            ? 'కుటుంబంలో ఉన్న వ్యాధులు మరియు వ్యక్తిగత అలవాట్లను తెలపండి'
+            : selectedLanguage === 'kn'
+            ? 'ಕುಟುಂಬದಲ್ಲಿನ ಕಾಯಿಲೆಗಳು ಮತ್ತು ವೈಯಕ್ತಿಕ ಅಭ್ಯಾಸಗಳನ್ನು ತಿಳಿಸಿ'
+            : selectedLanguage === 'ml'
+            ? 'കുടുംബത്തിലെ അസുഖങ്ങളും വ്യക്തിഗത ശീലങ്ങളും സൂചിപ്പിക്കുക'
+            : selectedLanguage === 'mr'
+            ? 'कुटुंबातील आजार आणि वैयक्तिक सवयी सांगा'
+            : 'Disclose family medical background and personal lifestyle habits'}
+        </p>
       </div>
 
       {/* Family History */}
       <div className="stitch-card p-6 mb-5">
         <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-1 flex items-center gap-2">
           <Users className="w-4 h-4 text-indigo-600" />
-          Family History (माता-पिता / भाई-बहन में बीमारियाँ)
+          Family History ({
+            selectedLanguage === 'ta' ? 'பெற்றோர் / உடன்பிறப்புகளின் நோய்கள்' :
+            selectedLanguage === 'te' ? 'తల్లిదండ్రులు / తోబుట్టువులలో వ్యాధులు' :
+            selectedLanguage === 'kn' ? 'ಪೋಷಕರು / ಒಡಹುಟ್ಟಿದವರಲ್ಲಿ ಕಾಯಿಲೆಗಳು' :
+            selectedLanguage === 'ml' ? 'മാതാപിതാക്കൾ / സഹോദരങ്ങളിലെ രോഗങ്ങൾ' :
+            selectedLanguage === 'mr' ? 'आई-वडील / भावंडांमधील आजार' :
+            'Immediate family conditions'
+          })
         </h3>
         <p className="text-xs text-slate-500 mb-4">Select all conditions present in immediate family members</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
@@ -107,7 +203,7 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
                 <span className="text-lg">{fc.emoji}</span>
                 <div>
                   <p className="text-xs font-bold text-slate-900">{fc.label}</p>
-                  <p className="text-[10px] text-slate-500">{fc.labelHi}</p>
+                  <p className="text-[10px] text-slate-500">{fc.regionalLabels[selectedLanguage] || fc.regionalLabels.en}</p>
                 </div>
                 <div className="ml-auto">
                   {isOn ? <CheckSquare className="w-4 h-4 text-indigo-600" /> : <Square className="w-4 h-4 text-slate-400" />}
@@ -122,13 +218,15 @@ export const FamilyPersonalHistoryScreen: React.FC<FamilyPersonalHistoryProps> =
             noneFamily ? 'bg-violet-50 border-indigo-400 text-indigo-800' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-400'
           }`}
         >
-          ✓ {selectedLanguage === 'hi' ? 'परिवार में कोई महत्वपूर्ण बीमारी नहीं' : selectedLanguage === 'ta' ? 'குடும்பத்தில் குறிப்பிடத்தக்க வரலாறு இல்லை' : selectedLanguage === 'te' ? 'కుటుంబంలో ముఖ్యమైన చరిత్ర లేదు' : 'No significant family history'}
+          ✓ {selectedLanguage === 'ta' ? 'குடும்பத்தில் குறிப்பிடத்தக்க வரலாறு இல்லை' : selectedLanguage === 'te' ? 'కుటుంబంలో ముఖ్యమైన చరిత్ర లేదు' : selectedLanguage === 'kn' ? 'ಕುಟುಂಬದಲ್ಲಿ ಯಾವುದೇ ಗಂಭೀರ ಕಾಯಿಲೆಯ ಇತಿಹಾಸವಿಲ್ಲ' : selectedLanguage === 'ml' ? 'കുടുംബത്തിൽ കാര്യമായ രോഗചരിത്രമില്ല' : selectedLanguage === 'mr' ? 'कुटुंबात कोणताही गंभीर आजार नाही' : 'No significant family history'}
         </button>
       </div>
 
       {/* Personal / Social History */}
       <div className="stitch-card p-6 mb-5">
-        <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">{selectedLanguage === 'hi' ? 'व्यक्तिगत / सामाजिक इतिहास' : selectedLanguage === 'ta' ? 'தனிப்பட்ட / சமூக வரலாறு' : selectedLanguage === 'te' ? 'వ్యక్తిగత / సామాజిక చరిత్ర' : 'Personal / Social History'}</h3>
+        <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">
+          {selectedLanguage === 'ta' ? 'தனிப்பட்ட / சமூக வரலாறு' : selectedLanguage === 'te' ? 'వ్యక్తిగత / సామాజిక చరిత్ర' : selectedLanguage === 'kn' ? 'ವೈಯಕ್ತಿಕ / ಸಾಮಾಜಿಕ ಇತಿಹಾಸ' : selectedLanguage === 'ml' ? 'വ്യക്തിഗത / സാമൂഹിക ചരിത്രം' : selectedLanguage === 'mr' ? 'वैयक्तिक / सामाजिक इतिहास' : 'Personal / Social History'}
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {/* Smoking */}
           <div>
