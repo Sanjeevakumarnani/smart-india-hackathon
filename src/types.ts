@@ -227,7 +227,7 @@ export interface HistoryObject {
   socrates: SocratesHistory;
   ayush?: AyushAssessment;
   redFlags: string[];
-  transcriptLogs: { speaker: 'kiosk' | 'patient'; text: string; time: string }[];
+  transcriptLogs: (string | { speaker: 'kiosk' | 'patient'; text: string; time: string })[];
   completedAt?: string;
   familyHistory?: FamilyHistory;
   personalHistory?: PersonalHistory;

@@ -116,7 +116,10 @@ export function generateClinicalReportPdf({
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(51, 65, 85);
-  const hpiText = summary?.hpi || historyObject.transcriptLogs?.join(' ') || 'Patient presented for outpatient consultation with acute onset symptoms.';
+  const transcriptText = historyObject.transcriptLogs?.map((entry) =>
+    typeof entry === 'string' ? entry : entry.text
+  ).join(' ');
+  const hpiText = summary?.hpi || transcriptText || 'Patient presented for outpatient consultation with acute onset symptoms.';
   const splitHpi = doc.splitTextToSize(hpiText, pageWidth - 28);
   doc.text(splitHpi, 14, y);
   y += splitHpi.length * 4.2 + 4;

@@ -55,11 +55,15 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
   // Analytics State
   const [analyticsData, setAnalyticsData] = useState<any>(null);
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const authHeaders = (): HeadersInit => {
+    const token = localStorage.getItem('medikiosk_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
     try {
-      const res = await fetch('/api/admin/users');
+      const res = await fetch('/api/admin/users', { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setUsersList(data);
@@ -74,7 +78,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
   const fetchHealth = async () => {
     setIsLoadingHealth(true);
     try {
-      const res = await fetch('/api/admin/system-health');
+      const res = await fetch('/api/admin/system-health', { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setHealthData(data);
@@ -89,7 +93,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
   const fetchAnalytics = async () => {
     setIsLoadingAnalytics(true);
     try {
-      const res = await fetch('/api/admin/analytics');
+      const res = await fetch('/api/admin/analytics', { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setAnalyticsData(data);
@@ -132,7 +136,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     try {
       await fetch(`/api/chief-complaints/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ is_active: !currentActive }),
       });
       setComplaintsList(prev => prev.map(c => (c.id === id || c.complaint_key === id) ? { ...c, is_active: !currentActive ? 1 : 0 } : c));
@@ -145,7 +149,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     try {
       await fetch(`/api/languages/${code}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ is_active: !currentActive }),
       });
       setLanguagesList(prev => prev.map(l => l.code === code ? { ...l, is_active: !currentActive ? 1 : 0 } : l));
@@ -189,7 +193,7 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
   const handleDeactivateUser = async (id: string) => {
     if (!confirm('Are you sure you want to deactivate this staff account?')) return;
     try {
-      await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+      await fetch(`/api/admin/users/${id}`, { method: 'DELETE', headers: authHeaders() });
       await fetchUsers();
     } catch {
       // Fallback
@@ -776,4 +780,3 @@ export const AdminPanelPage: React.FC<AdminPanelPageProps> = ({
     </div>
   );
 };
-

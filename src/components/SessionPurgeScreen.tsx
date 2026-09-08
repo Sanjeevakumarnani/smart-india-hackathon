@@ -101,8 +101,8 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
 
   useEffect(() => {
     // Invoke backend purge endpoint for GDPR/DPDP data hygiene
-    if (createdToken?.id) {
-      fetch(`/api/session/purge/${createdToken.id}`, { method: 'POST' }).catch(() => {});
+    if (createdToken?.tokenId) {
+      fetch(`/api/session/purge/${createdToken.tokenId}`, { method: 'POST' }).catch(() => {});
     }
 
     PURGE_STEPS.forEach((step, idx) => {

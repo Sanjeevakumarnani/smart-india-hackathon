@@ -77,7 +77,7 @@ export const ChiefComplaintPicker: React.FC<ChiefComplaintPickerProps> = ({
         return res.json();
       })
       .then((data: any[]) => {
-        const mapped = data.map((item) => ({
+        const mapped: Complaint[] = data.map((item) => ({
           id: item.complaint_key,
           title: item.display_name_en,
           regionalTitles: {

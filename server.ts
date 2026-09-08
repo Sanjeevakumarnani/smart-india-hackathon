@@ -59,6 +59,17 @@ function authenticateToken(req: AuthenticatedRequest, res: express.Response, nex
   });
 }
 
+function requireRole(...roles: AuthenticatedRequest['user']['role'][]) {
+  return (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
+    authenticateToken(req, res, () => {
+      if (!req.user || !roles.includes(req.user.role)) {
+        return res.status(403).json({ error: 'You are not authorized for this action' });
+      }
+      next();
+    });
+  };
+}
+
 let aiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -736,16 +747,26 @@ app.patch('/api/queue/:id/reprioritize', async (req, res) => {
 // ──────────────────────────────────────────────
 app.post('/api/encounters/complete', async (req, res) => {
   try {
-    const {
-      patient,
-      encounter,
-      vitals,
-      socrates,
-      ayush,
-      clinicalHistory,
-      documents,
-      summary,
-    } = req.body;
+    // Accept both the original API contract and the kiosk's current payload.
+    // Keeping this normalization here prevents the client from having to know
+    // about persistence-specific field names.
+    const payload = req.body || {};
+    const patient = payload.patient || payload.patientProfile;
+    const encounter = payload.encounter || (payload.tokenPayload ? {
+      opdType: payload.tokenPayload.opdType,
+      chiefComplaint: payload.tokenPayload.chiefComplaint,
+      priorityLevel: payload.tokenPayload.priorityLevel,
+      redFlagReason: payload.tokenPayload.redFlagReason,
+    } : undefined);
+    const vitals = payload.vitals || payload.patientProfile?.vitals;
+    const socrates = payload.socrates;
+    const ayush = payload.ayush;
+    const clinicalHistory = payload.clinicalHistory || ((payload.familyHistory || payload.personalHistory) ? {
+      familyHistory: payload.familyHistory,
+      personalHistory: payload.personalHistory,
+    } : undefined);
+    const documents = Array.isArray(payload.documents) ? payload.documents : [];
+    const summary = payload.summary;
 
     const patientId = patient?.id || `PAT-${Date.now().toString().slice(-6)}`;
     const encounterId = encounter?.id || `ENC-${Date.now().toString().slice(-6)}`;
@@ -865,10 +886,10 @@ app.post('/api/encounters/complete', async (req, res) => {
     // 5. Save Socrates
     if (socrates) {
       await executeQuery(
-        `INSERT INTO socrates_assessments 
-         (id, encounter_id, site, onset, character_quality, radiation, associations, timing, exacerbating_relieving, severity_score, transcript_notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE severity_score = VALUES(severity_score)`,
+        `INSERT INTO socrates_assessments
+         (id, encounter_id, site, onset, character_pain, radiation, associations, timing, exacerbating_factors, severity, raw_responses, red_flags_triggered)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE severity = VALUES(severity), raw_responses = VALUES(raw_responses)`,
         [
           `SOC-${Date.now()}`,
           encounterId,
@@ -878,9 +899,10 @@ app.post('/api/encounters/complete', async (req, res) => {
           socrates.radiation || null,
           Array.isArray(socrates.associations) ? socrates.associations.join(', ') : (socrates.associations || null),
           socrates.timing || null,
-          `${socrates.exacerbating || ''} | ${socrates.relieving || ''}`,
+          [socrates.exacerbating, socrates.relieving].filter(Boolean).join(' | ') || null,
           socrates.severity || 5,
-          socrates.notes || null,
+          JSON.stringify(socrates),
+          JSON.stringify(socrates.redFlags || []),
         ]
       );
       inMemoryDb.socratesAssessments.push({ ...socrates, encounterId });
@@ -890,21 +912,22 @@ app.post('/api/encounters/complete', async (req, res) => {
     if (ayush) {
       await executeQuery(
         `INSERT INTO ayush_assessments
-         (id, encounter_id, prakriti, agni, koshtha, dominant_dosha, vata_score, pitta_score, kapha_score, ahara_vihara, dosha_imbalance, chikitsa_guidance)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, encounter_id, prakriti, agni, koshtha, vata_score, pitta_score, kapha_score, dosha_imbalance, chikitsa_guidance, nadi_image_url, tongue_image_url, card_responses)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           `AYU-${Date.now()}`,
           encounterId,
           ayush.prakriti || 'Vata-Pitta',
           ayush.agni || null,
           ayush.koshtha || null,
-          ayush.dominantDosha || 'Vata-Pitta',
           ayush.vataScore || 0,
           ayush.pittaScore || 0,
           ayush.kaphaScore || 0,
-          ayush.aharaVihara || null,
-          ayush.doshaImbalance || null,
+          ayush.doshaImbalance || ayush.dominantDosha || null,
           ayush.chikitsaGuidance || null,
+          ayush.nadiImageUrl || null,
+          ayush.jihvaImageUrl || null,
+          JSON.stringify(ayush),
         ]
       );
       inMemoryDb.ayushAssessments.push({ ...ayush, encounterId });
@@ -914,20 +937,14 @@ app.post('/api/encounters/complete', async (req, res) => {
     if (clinicalHistory) {
       await executeQuery(
         `INSERT INTO clinical_history
-         (id, encounter_id, family_diabetes, family_hypertension, family_heart_disease, family_cancer, family_kidney_disease, family_thyroid, smoking_status, alcohol_use, occupation)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, encounter_id, family_history, personal_history)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE family_history = VALUES(family_history), personal_history = VALUES(personal_history)`,
         [
           `HIS-${Date.now()}`,
           encounterId,
-          clinicalHistory.familyHistory?.diabetes ? 1 : 0,
-          clinicalHistory.familyHistory?.hypertension ? 1 : 0,
-          clinicalHistory.familyHistory?.heartDisease ? 1 : 0,
-          clinicalHistory.familyHistory?.cancer ? 1 : 0,
-          clinicalHistory.familyHistory?.kidneyDisease ? 1 : 0,
-          clinicalHistory.familyHistory?.thyroid ? 1 : 0,
-          clinicalHistory.personalHistory?.smokingStatus || 'Non-Smoker',
-          clinicalHistory.personalHistory?.alcoholUse || 'None',
-          clinicalHistory.personalHistory?.occupation || null,
+          JSON.stringify(clinicalHistory.familyHistory || {}),
+          JSON.stringify(clinicalHistory.personalHistory || {}),
         ]
       );
       inMemoryDb.clinicalHistories.push({ ...clinicalHistory, encounterId });
@@ -938,18 +955,19 @@ app.post('/api/encounters/complete', async (req, res) => {
       for (const doc of documents) {
         await executeQuery(
           `INSERT INTO documents
-           (id, encounter_id, document_type, title, hospital_or_clinic, doctor_name, raw_ocr_text, ocr_confidence_score, pending_physician_review)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, encounter_id, patient_id, document_type, hospital_or_clinic, doctor_name, document_date, raw_ocr_text, parsed_data, ocr_confidence)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             doc.id || `DOC-${Date.now()}-${Math.floor(Math.random()*1000)}`,
             encounterId,
+            patientId,
             doc.documentType || 'prescription',
-            doc.title || 'Scanned Document',
             doc.hospitalOrClinic || 'OPD Clinic',
             doc.doctorName || 'Attending Physician',
+            doc.date || new Date().toISOString().slice(0, 10),
             doc.rawOcrText || '',
-            doc.confidenceScore || 90,
-            0,
+            JSON.stringify({ title: doc.title || 'Scanned Document', diagnoses: doc.diagnoses || [], medications: doc.medications || [], labValues: doc.labValues || [] }),
+            doc.confidenceScore || doc.ocrConfidenceScore || 90,
           ]
         );
         inMemoryDb.documents.push({ ...doc, encounterId });
@@ -960,17 +978,17 @@ app.post('/api/encounters/complete', async (req, res) => {
     if (summary) {
       await executeQuery(
         `INSERT INTO clinical_summaries
-         (id, encounter_id, hpi_narrative, past_history, medications_active, allergies, provisional_care_plan, hindi_translation_summary)
+         (id, encounter_id, hpi, hpi_hindi, differential_diagnosis, provisional_plan, red_flags, drug_interactions)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           `SUM-${Date.now()}`,
           encounterId,
           summary.hpi || '',
-          summary.pastHistory || '',
-          summary.medications || '',
-          summary.allergies || '',
-          summary.provisionalPlan || '',
           summary.regionalSummary || summary.hindiSummary || '',
+          JSON.stringify(summary.differentialDiagnosis || []),
+          summary.provisionalPlan || '',
+          JSON.stringify(socrates?.redFlags || []),
+          JSON.stringify(summary.drugInteractions || []),
         ]
       );
       inMemoryDb.clinicalSummaries.push({ ...summary, encounterId });
@@ -1382,7 +1400,7 @@ app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
         patient = patRows[0] || null;
       }
 
-      const { rows: vitRows } = await executeQuery('SELECT * FROM vitals WHERE encounter_id = ? ORDER BY created_at DESC LIMIT 1', [encounterId]);
+      const { rows: vitRows } = await executeQuery('SELECT * FROM vitals WHERE encounter_id = ? ORDER BY recorded_at DESC LIMIT 1', [encounterId]);
       vitals = vitRows[0] || null;
 
       const { rows: socRows } = await executeQuery('SELECT * FROM socrates_assessments WHERE encounter_id = ? ORDER BY created_at DESC LIMIT 1', [encounterId]);
@@ -1450,44 +1468,55 @@ app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
       bloodGroup: 'O+',
     };
 
+    const parseJsonField = (value: unknown, fallback: Record<string, unknown> = {}) => {
+      if (typeof value !== 'string') return value && typeof value === 'object' ? value as Record<string, unknown> : fallback;
+      try {
+        return JSON.parse(value) as Record<string, unknown>;
+      } catch {
+        return fallback;
+      }
+    };
+    const familyHistory = parseJsonField(history?.family_history || history?.familyHistory);
+    const personalHistory = parseJsonField(history?.personal_history || history?.personalHistory);
+
     const historyObject = {
       chiefComplaint: encounter?.chief_complaint_text || token.chiefComplaint || 'General Consultation',
       opdType: encounter?.opd_type || token.opdType || 'allopathic',
       socrates: socrates ? {
         site: socrates.site,
         onset: socrates.onset,
-        character: socrates.character_quality || socrates.character,
+        character: socrates.character_pain || socrates.character,
         radiation: socrates.radiation,
         associations: socrates.associations ? String(socrates.associations).split(', ') : [],
         timing: socrates.timing,
-        exacerbating: socrates.exacerbating_relieving?.split(' | ')[0] || socrates.exacerbating,
-        relieving: socrates.exacerbating_relieving?.split(' | ')[1] || socrates.relieving,
-        severity: socrates.severity_score || socrates.severity || 5,
+        exacerbating: socrates.exacerbating_factors?.split(' | ')[0] || socrates.exacerbating,
+        relieving: socrates.exacerbating_factors?.split(' | ')[1] || socrates.relieving,
+        severity: socrates.severity || 5,
       } : {},
       ayush: ayush ? {
         prakriti: ayush.prakriti,
-        dominantDosha: ayush.dominant_dosha || ayush.dominantDosha,
+        dominantDosha: ayush.dosha_imbalance || ayush.dominantDosha,
         vataScore: ayush.vata_score || ayush.vataScore || 0,
         pittaScore: ayush.pitta_score || ayush.pittaScore || 0,
         kaphaScore: ayush.kapha_score || ayush.kaphaScore || 0,
         agni: ayush.agni,
         koshtha: ayush.koshtha,
-        aharaVihara: ayush.ahara_vihara || ayush.aharaVihara,
+        aharaVihara: ayush.aharaVihara,
         doshaImbalance: ayush.dosha_imbalance || ayush.doshaImbalance,
         chikitsaGuidance: ayush.chikitsa_guidance || ayush.chikitsaGuidance,
       } : undefined,
       familyHistory: history ? {
-        diabetes: Boolean(history.family_diabetes),
-        hypertension: Boolean(history.family_hypertension),
-        heartDisease: Boolean(history.family_heart_disease),
-        cancer: Boolean(history.family_cancer),
-        kidneyDisease: Boolean(history.family_kidney_disease),
-        thyroid: Boolean(history.family_thyroid),
+        diabetes: Boolean(familyHistory.diabetes),
+        hypertension: Boolean(familyHistory.hypertension),
+        heartDisease: Boolean(familyHistory.heartDisease),
+        cancer: Boolean(familyHistory.cancer),
+        kidneyDisease: Boolean(familyHistory.kidneyDisease),
+        thyroid: Boolean(familyHistory.thyroid),
       } : undefined,
       personalHistory: history ? {
-        smokingStatus: history.smoking_status || 'Non-Smoker',
-        alcoholUse: history.alcohol_use || 'None',
-        occupation: history.occupation || '',
+        smokingStatus: personalHistory.smokingStatus || 'Non-Smoker',
+        alcoholUse: personalHistory.alcoholUse || 'None',
+        occupation: personalHistory.occupation || '',
       } : undefined,
       redFlags: token.is_red_flag || token.priorityLevel === 'CRITICAL'
         ? [token.red_flag_reason || token.redFlagReason || 'High Priority Alert']
@@ -1502,7 +1531,7 @@ app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
       documents: documents.map(d => ({
         id: d.id,
         documentType: d.document_type || d.documentType || 'prescription',
-        title: d.title || 'Scanned Record',
+        title: parseJsonField(d.parsed_data).title || d.title || 'Scanned Record',
         hospitalOrClinic: d.hospital_or_clinic || d.hospitalOrClinic || 'Hospital',
         doctorName: d.doctor_name || d.doctorName || 'Attending Physician',
         date: d.created_at ? new Date(d.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
@@ -1510,15 +1539,12 @@ app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
         medications: [],
         labValues: [],
         rawOcrText: d.raw_ocr_text || '',
-        confidenceScore: d.ocr_confidence_score || 90,
+        confidenceScore: d.ocr_confidence || d.ocrConfidenceScore || 90,
       })),
       summary: summary ? {
-        hpi: summary.hpi_narrative || '',
-        pastHistory: summary.past_history || '',
-        medications: summary.medications_active || '',
-        allergies: summary.allergies || '',
-        provisionalPlan: summary.provisional_care_plan || '',
-        regionalSummary: summary.hindi_translation_summary || '',
+        hpi: summary.hpi || '',
+        provisionalPlan: summary.provisional_plan || '',
+        regionalSummary: summary.hpi_hindi || '',
       } : null,
     });
   } catch (err: any) {
@@ -1683,7 +1709,7 @@ app.post('/api/auth/logout', (_req, res) => {
 // ──────────────────────────────────────────────
 // Admin: User & Role Management
 // ──────────────────────────────────────────────
-app.get('/api/admin/users', async (_req, res) => {
+app.get('/api/admin/users', requireRole('admin'), async (_req, res) => {
   const { rows, fromDb } = await executeQuery(
     'SELECT id, username, role, full_name, employee_id, department, phone, email, is_active, created_at FROM users ORDER BY created_at DESC'
   );
@@ -1699,7 +1725,7 @@ app.get('/api/admin/users', async (_req, res) => {
   ]);
 });
 
-app.post('/api/admin/users', async (req, res) => {
+app.post('/api/admin/users', requireRole('admin'), async (req, res) => {
   const { username, password, role, fullName, employeeId, department, phone, email } = req.body;
   if (!username || !password || !fullName || !role) {
     return res.status(400).json({ error: 'Missing required user fields' });
@@ -1721,7 +1747,7 @@ app.post('/api/admin/users', async (req, res) => {
   }
 });
 
-app.patch('/api/admin/users/:id', async (req, res) => {
+app.patch('/api/admin/users/:id', requireRole('admin'), async (req, res) => {
   const userId = req.params.id;
   const { role, fullName, department, isActive, password } = req.body;
 
@@ -1749,7 +1775,7 @@ app.patch('/api/admin/users/:id', async (req, res) => {
   }
 });
 
-app.delete('/api/admin/users/:id', async (req, res) => {
+app.delete('/api/admin/users/:id', requireRole('admin'), async (req, res) => {
   const userId = req.params.id;
   try {
     await executeQuery('UPDATE users SET is_active = 0 WHERE id = ?', [userId]);
@@ -1762,7 +1788,7 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 // ──────────────────────────────────────────────
 // Admin: System Health Dashboard
 // ──────────────────────────────────────────────
-app.get('/api/admin/system-health', async (_req, res) => {
+app.get('/api/admin/system-health', requireRole('admin'), async (_req, res) => {
   const startDb = Date.now();
   const dbCheck = await executeQuery('SELECT COUNT(*) as total_patients FROM patients');
   const dbLatency = Date.now() - startDb;
@@ -1816,7 +1842,7 @@ app.get('/api/admin/system-health', async (_req, res) => {
 // ──────────────────────────────────────────────
 // Admin: Comprehensive Analytics
 // ──────────────────────────────────────────────
-app.get('/api/admin/analytics', async (_req, res) => {
+app.get('/api/admin/analytics', requireRole('admin'), async (_req, res) => {
   const { rows: tokenRows } = await executeQuery(
     `SELECT priority_level, status, COUNT(*) as count 
      FROM queue_tokens 
@@ -3968,7 +3994,7 @@ app.get('/api/chief-complaints', async (_req, res) => {
   res.json(inMemoryDb.chiefComplaints);
 });
 
-app.put('/api/chief-complaints/:id', async (req, res) => {
+app.put('/api/chief-complaints/:id', requireRole('admin'), async (req, res) => {
   const { id } = req.params;
   const { is_active, display_name_en, display_name_te, display_name_ta, display_name_kn, display_name_ml, display_name_mr } = req.body;
 
@@ -4015,7 +4041,7 @@ app.get('/api/languages', async (_req, res) => {
   res.json(inMemoryDb.supportedLanguages);
 });
 
-app.put('/api/languages/:code', async (req, res) => {
+app.put('/api/languages/:code', requireRole('admin'), async (req, res) => {
   const { code } = req.params;
   const { is_active } = req.body;
 
