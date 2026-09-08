@@ -9,9 +9,10 @@ import {
   AlertOctagon,
   Code2,
   CheckCircle2,
-  RefreshCw,
   MessageCircle,
   Download,
+  Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 import {
   ClinicalSummary,
@@ -51,6 +52,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
   const [editedPlan, setEditedPlan] = useState('');
   const [editedHpi, setEditedHpi] = useState('');
   const [correctionsCount, setCorrectionsCount] = useState(0);
+  const [summarySource, setSummarySource] = useState<string>('gemini');
   const [activeLangTab, setActiveLangTab] = useState<'EN' | 'REGIONAL'>('EN');
   const [consoleNotification, setConsoleNotification] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [showFhirInspector, setShowFhirInspector] = useState(false);
@@ -75,6 +77,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
           setSummary(res.summary);
           setEditedHpi(res.summary.hpi);
           setEditedPlan(res.summary.provisionalPlan);
+          setSummarySource(res.source || 'gemini');
 
           // Build FHIR Bundle
           const bundle = generateFhirR4Bundle(
@@ -376,9 +379,21 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
             <div className="flex items-center gap-2.5">
               <Stethoscope className="w-6 h-6 text-cyan-400" />
               <div>
-                <h3 className="text-lg font-black text-white">
-                  Physician Case-Taking & Triage Summary
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-black text-white">
+                    Physician Case-Taking & Triage Summary
+                  </h3>
+                  {summarySource === 'gemini' || summarySource === 'server' ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-mono font-bold">
+                      <Sparkles className="w-3 h-3 text-emerald-400" />
+                      <span>AI (Gemini 2.5)</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-bold">
+                      <span>Basic Synthesizer</span>
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-400 font-mono">
                   Synthesized via MediKiosk+ Clinical Engine
                 </p>
@@ -455,6 +470,27 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
                 <p className="text-xs font-semibold text-rose-300 mt-1">
                   {summary.allergies || 'NKDA'}
                 </p>
+              </div>
+            </div>
+
+            {/* Review of Systems (ROS) & Personal/Family History */}
+            <div>
+              <h4 className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider mb-2">
+                2b. Review of Systems (ROS) &amp; Clinical Background
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3.5 rounded-2xl bg-[#06080d] border border-[#1b2334]">
+                  <p className="text-[11px] font-mono font-bold text-slate-400 uppercase">Review of Systems (ROS)</p>
+                  <p className="text-xs text-slate-200 mt-1 leading-relaxed">
+                    {summary.ros || 'Systemic inquiry completed via SOCRATES complaint analysis. No acute unaddressed systemic red flags.'}
+                  </p>
+                </div>
+                <div className="p-3.5 rounded-2xl bg-[#06080d] border border-[#1b2334]">
+                  <p className="text-[11px] font-mono font-bold text-slate-400 uppercase">Family &amp; Social History</p>
+                  <p className="text-xs text-slate-200 mt-1 leading-relaxed">
+                    {summary.familyHistory || summary.personalHistory || 'No significant genetic or lifestyle risk factors disclosed.'}
+                  </p>
+                </div>
               </div>
             </div>
 

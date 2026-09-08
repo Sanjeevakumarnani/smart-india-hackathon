@@ -40,11 +40,11 @@ class InMemoryDbStore {
 
   supportedLanguages = [
     { id: 'lang-en', code: 'en', name: 'English', native_name: 'English', bcp47: 'en-IN', flag_emoji: '🇬🇧', sort_order: 1 },
-    { id: 'lang-te', code: 'te', name: 'Telugu', native_name: 'తెలుగు', bcp47: 'te-IN', flag_emoji: '🇮🇳', sort_order: 2 },
-    { id: 'lang-ta', code: 'ta', name: 'Tamil', native_name: 'தமிழ்', bcp47: 'ta-IN', flag_emoji: '🇮🇳', sort_order: 3 },
-    { id: 'lang-kn', code: 'kn', name: 'Kannada', native_name: 'ಕನ್ನಡ', bcp47: 'kn-IN', flag_emoji: '🇮🇳', sort_order: 4 },
-    { id: 'lang-ml', code: 'ml', name: 'Malayalam', native_name: 'മലയാളം', bcp47: 'ml-IN', flag_emoji: '🇮🇳', sort_order: 5 },
-    { id: 'lang-mr', code: 'mr', name: 'Marathi', native_name: 'मराठी', bcp47: 'mr-IN', flag_emoji: '🇮🇳', sort_order: 6 },
+    { id: 'lang-ta', code: 'ta', name: 'Tamil', native_name: 'தமிழ்', bcp47: 'ta-IN', flag_emoji: '🇮🇳', sort_order: 2 },
+    { id: 'lang-te', code: 'te', name: 'Telugu', native_name: 'తెలుగు', bcp47: 'te-IN', flag_emoji: '🇮🇳', sort_order: 3 },
+    { id: 'lang-ml', code: 'ml', name: 'Malayalam', native_name: 'മലയാളം', bcp47: 'ml-IN', flag_emoji: '🇮🇳', sort_order: 4 },
+    { id: 'lang-mr', code: 'mr', name: 'Marathi', native_name: 'मराठी', bcp47: 'mr-IN', flag_emoji: '🇮🇳', sort_order: 5 },
+    { id: 'lang-kn', code: 'kn', name: 'Kannada', native_name: 'ಕನ್ನಡ', bcp47: 'kn-IN', flag_emoji: '🇮🇳', sort_order: 6 },
   ];
 
   chiefComplaints = [
@@ -56,6 +56,7 @@ class InMemoryDbStore {
     { id: 'cmp-06', complaint_key: 'headache_dizzy', display_name_en: 'Severe Headache or Dizziness', display_name_hi: 'गंभीर सिरदर्द या चक्कर', display_name_te: 'తీవ్రమైన తలనొప్పి లేదా మైకం', display_name_ta: 'கடுமையான தலைவலி அல்லது தலைச்சுற்றல்', display_name_kn: 'ತೀವ್ರ ತಲೆನೋವು ಅಥವಾ ತಲೆತಿರುಗುವಿಕೆ', display_name_ml: 'കഠിനമായ തലവേദന അല്ലെങ്കിൽ തലകറക്കം', display_name_mr: 'तीव्र डोकेदुखी किंवा चक्कर', icon: 'Zap', color_class: 'text-purple-600 bg-purple-50 border-purple-200', opd_type: 'both', is_red_flag_trigger: 0, sort_order: 6, is_active: 1 },
     { id: 'cmp-07', complaint_key: 'skin_rash', display_name_en: 'Skin Rash / Itching (Kushtha)', display_name_hi: 'त्वचा रोग / खुजली', display_name_te: 'చర్మంపై దద్దుర్లు / దురద', display_name_ta: 'தோல் வெடிப்பு / அரிப்பு', display_name_kn: 'ಚರ್ಮದ ದದ್ದು / ತುರಿಕೆ', display_name_ml: 'ത്വക്ക് തിണർപ്പ് / ചൊറിച്ചിൽ', display_name_mr: 'त्वचेवर पुरळ / खाज', icon: 'Sparkles', color_class: 'text-emerald-600 bg-emerald-50 border-emerald-200', opd_type: 'ayurveda', is_red_flag_trigger: 0, sort_order: 7, is_active: 1 },
     { id: 'cmp-08', complaint_key: 'digestive_issues', display_name_en: 'Indigestion / Constipation (Agni Mandya)', display_name_hi: 'अपच या कब्ज', display_name_te: 'అజీర్ణం / మలబద్ధకం', display_name_ta: 'செரிமானமின்மை / மலச்சிக்கல்', display_name_kn: 'ಅಜೀರ್ಣ / ಮಲಬದ್ಧತೆ', display_name_ml: 'ദഹനക്കേട് / മലബന്ധം', display_name_mr: 'अपचन / बद्धकोष्ठता', icon: 'Apple', color_class: 'text-teal-600 bg-teal-50 border-teal-200', opd_type: 'ayurveda', is_red_flag_trigger: 0, sort_order: 8, is_active: 1 },
+    { id: 'cmp-09', complaint_key: 'other_disease', display_name_en: 'Other Disease / Condition', display_name_hi: 'अन्य बीमारी / समस्या', display_name_te: 'ఇతర వ్యాధి / సమస్య', display_name_ta: 'மற்ற நோய் / பிரச்சனை', display_name_kn: 'ಇತರ ರೋಗ / ಸಮಸ್ಯೆ', display_name_ml: 'മറ്റ് രോഗം / പ്രശ്നം', display_name_mr: 'इतर आजार / समस्या', icon: 'HelpCircle', color_class: 'text-indigo-600 bg-indigo-50 border-indigo-200', opd_type: 'both', is_red_flag_trigger: 0, sort_order: 9, is_active: 1 },
   ];
 
   patients: any[] = [];

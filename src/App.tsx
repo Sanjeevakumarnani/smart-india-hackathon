@@ -31,6 +31,7 @@ import { RedFlagNotificationListener } from './components/RedFlagNotificationLis
 import { OfflineIndicator } from './components/PWAInstallButton';
 import { ChatWidget } from './components/ChatWidget';
 import { broadcastManager } from './services/broadcastChannel';
+import { speechService } from './services/speechService';
 import { PatientHeader } from './components/PatientHeader';
 import { FloatingCurrentToken } from './components/FloatingCurrentToken';
 import { StaffLoginScreen, AuthUser } from './components/StaffLoginScreen';
@@ -259,6 +260,16 @@ export function App() {
   };
 
   const handleResetKiosk = () => {
+    // 1. Immediately stop any active TTS speech for patient privacy
+    speechService.stop();
+
+    // 2. Clear PHI from localStorage for DPDP Act 2023 compliance
+    try {
+      localStorage.removeItem('medikiosk_fhir_archive');
+    } catch (e) {
+      console.warn('Could not clear PHI storage:', e);
+    }
+
     setCurrentStep('LANGUAGE');
     setSelectedLanguage('en');
     setPatientProfile(null);
@@ -421,7 +432,6 @@ export function App() {
             onUpdateConsent={(c) => setConsent(c)}
             onContinue={() => setCurrentStep('IDENTITY')}
             onBack={() => setCurrentStep('LANGUAGE')}
-            onGoToSummary={() => setCurrentStep('PHYSICIAN_CONSOLE')}
             selectedLanguage={selectedLanguage}
             isAudioNarration={isAudioNarration}
           />
@@ -459,7 +469,13 @@ export function App() {
             }}
             selectedComplaintId={selectedComplaintId}
             onSelectComplaint={handleComplaintSelection}
-            onContinue={() => setCurrentStep('CONVERSATION')}
+            onContinue={() => {
+              if (opdType === 'ayurveda') {
+                setCurrentStep('AYUSH_PARIKSHA');
+              } else {
+                setCurrentStep('CONVERSATION');
+              }
+            }}
             onBack={() => setCurrentStep('VITALS')}
             selectedLanguage={selectedLanguage}
           />
@@ -502,7 +518,7 @@ export function App() {
             historyObject={historyObject}
             onUpdateHistory={(h) => setHistoryObject(h)}
             onContinue={() => setCurrentStep('DOC_SCAN')}
-            onBack={() => setCurrentStep('FAMILY_HISTORY')}
+            onBack={() => setCurrentStep('COMPLAINT_SELECT')}
             selectedLanguage={selectedLanguage}
           />
         )}

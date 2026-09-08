@@ -21,6 +21,7 @@ const PURGE_STEPS: PurgeStep[] = [
     icon: <Trash2 className="w-5 h-5" />,
     label: 'Voice recordings deleted from kiosk memory',
     regionalLabels: {
+      hi: 'वॉइस रिकॉर्डिंग कियोस्क मेमोरी से हटा दी गई है',
       te: 'వాయిస్ రికార్డింగ్‌లు కియోస్క్ మెమరీ నుండి తొలగించబడ్డాయి',
       ta: 'குரல் பதிவுகள் கியோஸ்க் நினைவகத்திலிருந்து நீக்கப்பட்டன',
       kn: 'ಧ್ವನಿ ರೆಕಾರ್ಡಿಂಗ್‌ಗಳನ್ನು ಕಿಯೋಸ್ಕ್ ಮೆಮೊರಿಯಿಂದ ಅಳಿಸಲಾಗಿದೆ',
@@ -33,6 +34,7 @@ const PURGE_STEPS: PurgeStep[] = [
     icon: <Trash2 className="w-5 h-5" />,
     label: 'Scanned document images removed from device',
     regionalLabels: {
+      hi: 'स्कैन किए गए दस्तावेज़ चित्र डिवाइस से हटा दिए गए हैं',
       te: 'స్కాన్ చేసిన పత్రాల చిత్రాలు పరికరం నుండి తీసివేయబడ్డాయి',
       ta: 'ஸ்கேன் செய்யப்பட்ட ஆவணப் படங்கள் சாதனத்திலிருந்து நீக்கப்பட்டன',
       kn: 'ಸ್ಕ್ಯಾನ್ ಮಾಡಿದ ದಾಖಲೆ ಚಿತ್ರಗಳನ್ನು ಸಾಧನದಿಂದ ತೆಗೆದುಹಾಕಲಾಗಿದೆ',
@@ -45,6 +47,7 @@ const PURGE_STEPS: PurgeStep[] = [
     icon: <Lock className="w-5 h-5" />,
     label: 'Session encrypted and transmitted to doctor',
     regionalLabels: {
+      hi: 'सत्र एन्क्रिप्ट करके डॉक्टर को भेजा गया',
       te: 'సెషన్ ఎన్‌క్రిప్ట్ చేయబడి వైద్యునికి పంపబడింది',
       ta: 'அமர்வு குறியாக்கம் செய்யப்பட்டு மருத்துவருக்கு அனுப்பப்பட்டது',
       kn: 'ಸೆಶನ್ ಎನ್‌ಕ್ರಿಪ್ಟ್ ಮಾಡಲಾಗಿದ್ದು ವೈದ್ಯರಿಗೆ ಕಳುಹಿಸಲಾಗಿದೆ',
@@ -57,6 +60,7 @@ const PURGE_STEPS: PurgeStep[] = [
     icon: <Wifi className="w-5 h-5" />,
     label: 'FHIR bundle pushed to your ABHA health locker',
     regionalLabels: {
+      hi: 'FHIR डेटा आपके ABHA हेल्थ लॉकर में भेजा गया',
       te: 'FHIR డేటా మీ ABHA హెల్త్ లాకర్‌కు సురక్షితంగా పంపబడింది',
       ta: 'FHIR தரவு உங்கள் ABHA சுகாதார லாக்கருக்கு அனுப்பப்பட்டது',
       kn: 'FHIR ಡೇಟಾವನ್ನು ನಿಮ್ಮ ABHA ಆರೋಗ್ಯ ಲಾಕರ್‌ಗೆ ತಲುಪಿಸಲಾಗಿದೆ',
@@ -69,6 +73,7 @@ const PURGE_STEPS: PurgeStep[] = [
     icon: <ShieldCheck className="w-5 h-5" />,
     label: 'Kiosk session cleared — privacy protected',
     regionalLabels: {
+      hi: 'कियोस्क सत्र समाप्त — आपकी गोपनीयता सुरक्षित',
       te: 'కియోస్క్ సెషన్ తొలగించబడింది — మీ గోప్యత సురక్షితం',
       ta: 'கியோஸ்க் அமர்வு அழிக்கப்பட்டது — தனியுரிமை பாதுகாப்பானது',
       kn: 'ಕಿಯೋಸ್ಕ್ ಸೆಷನ್ ತೆರವುಗೊಳಿಸಲಾಗಿದೆ — ಗೌಪ್ಯತೆ ಸುರಕ್ಷಿತವಾಗಿದೆ',
@@ -86,6 +91,7 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
 
   const dpdpSubtitles: Record<LanguageCode, string> = {
     en: 'Your privacy is protected — compliant with DPDP Act 2023',
+    hi: 'आपकी गोपनीयता सुरक्षित है — DPDP अधिनियम 2023 के तहत अनुपालन',
     te: 'మీ గోప్యత సురక్షితం — DPDP చట్టం 2023 ప్రకారం',
     ta: 'உங்கள் தனியுரிமை பாதுகாப்பானது — DPDP சட்டம் 2023 படி',
     kn: 'ನಿಮ್ಮ ಗೌಪ್ಯತೆ ಸುರಕ್ಷಿತವಾಗಿದೆ — DPDP ಕಾಯ್ದೆ 2023 ರ ಪ್ರಕಾರ',
@@ -125,8 +131,23 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
         <ShieldCheck className="w-10 h-10 text-indigo-600" />
       </div>
 
-      <h2 className="text-2xl font-black text-slate-900 text-center mb-1">{translate('dataProtected', selectedLanguage)}</h2>
-      <p className="text-sm text-slate-600 text-center mb-8">{dpdpSubtitles[selectedLanguage] || dpdpSubtitles.en}</p>
+      <h2 className="text-2xl font-black text-slate-900 text-center mb-1">
+        {translate('dataProtected', selectedLanguage)}
+      </h2>
+      {selectedLanguage !== 'en' && (
+        <p className="text-sm font-semibold text-indigo-700 text-center mb-1">
+          {translate('dataProtected', 'en')}
+        </p>
+      )}
+      <p className="text-sm text-slate-600 text-center mb-1">
+        {dpdpSubtitles[selectedLanguage] || dpdpSubtitles.en}
+      </p>
+      {selectedLanguage !== 'en' && (
+        <p className="text-xs text-slate-400 text-center mb-8">
+          {dpdpSubtitles.en}
+        </p>
+      )}
+      {selectedLanguage === 'en' && <div className="mb-7" />}
 
       {/* Purge Steps */}
       <div className="w-full space-y-3 mb-8">
@@ -143,8 +164,14 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
                 {done ? <CheckCircle2 className="w-5 h-5" /> : step.icon}
               </div>
               <div>
-                <p className="text-sm font-bold text-slate-900">{step.label}</p>
-                {regionalText && <p className="text-xs text-indigo-700 font-medium">{regionalText}</p>}
+                <p className="text-sm font-bold text-slate-900">
+                  {regionalText || step.label}
+                </p>
+                {selectedLanguage !== 'en' && regionalText && (
+                  <p className="text-xs text-slate-500 font-medium">
+                    {step.label}
+                  </p>
+                )}
               </div>
             </div>
           );
@@ -158,7 +185,14 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
             ? 'bg-rose-50 border-rose-400 text-rose-900'
             : 'stitch-card-active'
         }`}>
-          <p className="text-xs font-mono font-bold text-slate-500 uppercase tracking-wider mb-1">Your OPD Token Slip</p>
+          <p className="text-xs font-mono font-bold text-slate-700 uppercase tracking-wider mb-0.5">
+            {translate('tokenIssued', selectedLanguage)}
+          </p>
+          {selectedLanguage !== 'en' && (
+            <p className="text-[11px] font-mono text-slate-400 uppercase tracking-wider mb-1">
+              {translate('tokenIssued', 'en')}
+            </p>
+          )}
           <p className={`text-5xl font-black font-mono mb-2 ${
             createdToken.priorityLevel === 'CRITICAL' ? 'text-rose-600' : 'text-indigo-700'
           }`}>#{createdToken.tokenNumber}</p>
@@ -166,11 +200,50 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
             <p className="text-sm font-black text-rose-600 animate-pulse">🚨 EMERGENCY — Proceed to TRIAGE immediately</p>
           )}
           <p className="text-sm text-slate-700 mt-1">
-            Please proceed to <strong className="text-slate-900">{createdToken.roomNumber}</strong>
+            {selectedLanguage === 'te' ? `దయచేసి గది ${createdToken.roomNumber} కి వెళ్లండి` :
+             selectedLanguage === 'ta' ? `தயவுசெய்து அறை ${createdToken.roomNumber}-க்கு செல்லவும்` :
+             selectedLanguage === 'kn' ? `ದಯವಿಟ್ಟು ಕೊಠಡಿ ${createdToken.roomNumber} ಗೆ ತೆರಳಿ` :
+             selectedLanguage === 'ml' ? `ദയവായി റൂം ${createdToken.roomNumber}-ലേക്ക് പോകുക` :
+             selectedLanguage === 'mr' ? `कृपया रूम ${createdToken.roomNumber} मध्ये जा` :
+             selectedLanguage === 'hi' ? `कृपया कमरा ${createdToken.roomNumber} में जाएं` :
+             `Please proceed to ${createdToken.roomNumber}`}
           </p>
-          <p className="text-xs text-slate-500 mt-0.5">Doctor: {createdToken.doctorName}</p>
+          {selectedLanguage !== 'en' && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              Please proceed to {createdToken.roomNumber}
+            </p>
+          )}
+          <p className="text-xs text-slate-500 mt-1">
+            {selectedLanguage === 'te' ? `వైద్యుడు: ${createdToken.doctorName}` :
+             selectedLanguage === 'ta' ? `மருத்துவர்: ${createdToken.doctorName}` :
+             selectedLanguage === 'kn' ? `ವೈದ್ಯರು: ${createdToken.doctorName}` :
+             selectedLanguage === 'ml' ? `ഡോക്ടർ: ${createdToken.doctorName}` :
+             selectedLanguage === 'mr' ? `डॉक्टर: ${createdToken.doctorName}` :
+             selectedLanguage === 'hi' ? `डॉक्टर: ${createdToken.doctorName}` :
+             `Doctor: ${createdToken.doctorName}`}
+          </p>
+          {selectedLanguage !== 'en' && (
+            <p className="text-[10px] text-slate-400">
+              Doctor: {createdToken.doctorName}
+            </p>
+          )}
           {createdToken.waitMinutes > 0 && (
-            <p className="text-xs text-indigo-700 mt-1 font-mono font-bold">Estimated wait: ~{createdToken.waitMinutes} minutes</p>
+            <div>
+              <p className="text-xs text-indigo-700 mt-1 font-mono font-bold">
+                {selectedLanguage === 'te' ? `అంచనా వేసిన నిరీక్షణ సమయం: ~${createdToken.waitMinutes} నిమిషాలు` :
+                 selectedLanguage === 'ta' ? `மதிப்பிடப்பட்ட காத்திருப்பு நேரம்: ~${createdToken.waitMinutes} நிமிடங்கள்` :
+                 selectedLanguage === 'kn' ? `ಅಂದಾಜು ಕಾಯುವ ಸಮಯ: ~${createdToken.waitMinutes} ನಿಮಿಷಗಳು` :
+                 selectedLanguage === 'ml' ? `കണക്കാക്കിയ കാത്തിരിപ്പ് സമയം: ~${createdToken.waitMinutes} മിനിറ്റ്` :
+                 selectedLanguage === 'mr' ? `अंदाजे प्रतीक्षा वेळ: ~${createdToken.waitMinutes} मिनिटे` :
+                 selectedLanguage === 'hi' ? `अनुमानित प्रतीक्षा समय: ~${createdToken.waitMinutes} मिनट` :
+                 `Estimated wait: ~${createdToken.waitMinutes} minutes`}
+              </p>
+              {selectedLanguage !== 'en' && (
+                <p className="text-[10px] text-slate-400 font-mono">
+                  Estimated wait: ~{createdToken.waitMinutes} minutes
+                </p>
+              )}
+            </div>
           )}
 
           {/* Thermal Receipt Print Action */}
@@ -180,7 +253,14 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
               className="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-xs font-mono font-bold text-indigo-700 flex items-center gap-2 transition shadow-xs"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Physical Thermal Token Slip</span>
+              <div className="text-left">
+                <span>{translate('printSlip', selectedLanguage)}</span>
+                {selectedLanguage !== 'en' && (
+                  <span className="block text-[10px] text-slate-400 font-normal">
+                    {translate('printSlip', 'en')}
+                  </span>
+                )}
+              </div>
             </button>
           </div>
         </div>
@@ -230,7 +310,14 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
             onClick={onProceed}
             className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-98"
           >
-            <span>Open Physician Console Now</span>
+            <div className="text-left">
+              <span>{translate('finishSession', selectedLanguage)}</span>
+              {selectedLanguage !== 'en' && (
+                <span className="block text-xs text-indigo-200 font-normal">
+                  {translate('finishSession', 'en')}
+                </span>
+              )}
+            </div>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

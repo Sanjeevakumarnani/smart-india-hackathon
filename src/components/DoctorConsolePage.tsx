@@ -77,8 +77,25 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
 
   useEffect(() => {
     fetchQueue();
-    const interval = setInterval(fetchQueue, 8000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchQueue, 12000);
+
+    let sse: EventSource | null = null;
+    try {
+      sse = new EventSource('/api/sse/queue-updates');
+      sse.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'NEW_PATIENT_QUEUED') {
+            fetchQueue();
+          }
+        } catch {}
+      };
+    } catch {}
+
+    return () => {
+      clearInterval(interval);
+      if (sse) sse.close();
+    };
   }, []);
 
   const handleOpenReprioritizeModal = (token: QueueToken) => {

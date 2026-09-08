@@ -54,15 +54,7 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
       });
   }, []);
 
-  const ayush: AyushAssessment = historyObject.ayush || {
-    prakriti: 'Vata-Pitta',
-    vataScore: 4,
-    pittaScore: 6,
-    kaphaScore: 2,
-    agni: 'Tikshna Agni',
-    koshtha: 'Krura Koshtha',
-    aharaVihara: 'Pitta-Vardhaka Ahar',
-  };
+  const ayush: AyushAssessment = historyObject.ayush || {};
 
   const currentDeck = cardsDeck[activeDeckIndex] || AYUSH_DASHAVIDHA_CARDS[0];
 
@@ -197,18 +189,40 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <Leaf className="w-4 h-4 text-indigo-600" />
           <span>AYUSH Dashavidha Rogi Pariksha</span>
+          {historyObject.chiefComplaint && (
+            <span className="ml-1 pl-2 border-l border-indigo-300 text-emerald-700 normal-case font-bold">
+              • {historyObject.chiefComplaint}
+            </span>
+          )}
         </div>
         <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          {selectedLanguage === 'te' ? 'ఆయుర్వేద ప్రకృతి మరియు రోగి పరీక్ష' : selectedLanguage === 'ta' ? 'ஆயுர்வேத உடலமைப்பு மற்றும் நோயாளி பரிசோதனை' : selectedLanguage === 'kn' ? 'ಆಯುರ್ವೇದ ಪ್ರಕೃತಿ ಮತ್ತು ರೋಗಿ ಪರೀಕ್ಷೆ' : selectedLanguage === 'ml' ? 'ആയുർവേദ പ്രകൃതിയും രോഗി പരീക്ഷയും' : selectedLanguage === 'mr' ? 'आयुर्वेदिक प्रकृती आणि रुग्ण परीक्षा' : 'Ayurvedic Constitution & Rogi Pariksha'}
+          {selectedLanguage === 'hi' ? 'आयुष प्रकृति एवं दशविध परीक्षा' :
+           selectedLanguage === 'te' ? 'ఆయుర్వేద ప్రకృతి మరియు రోగి పరీక్ష' :
+           selectedLanguage === 'ta' ? 'ஆயுர்வேத உடலமைப்பு மற்றும் நோயாளி பரிசோதனை' :
+           selectedLanguage === 'kn' ? 'ಆಯುರ್ವೇದ ಪ್ರಕೃತಿ ಮತ್ತು ರೋಗಿ ಪರೀಕ್ಷೆ' :
+           selectedLanguage === 'ml' ? 'ആയുർവേദ പ്രകൃതിയും രോഗി പരീക്ഷയും' :
+           selectedLanguage === 'mr' ? 'आयुर्वेदिक प्रकृती आणि रुग्ण परीक्षा' :
+           'Ayurvedic Constitution & Rogi Pariksha'}
         </h2>
+        {selectedLanguage !== 'en' && (
+          <p className="text-sm font-semibold text-indigo-700 mt-0.5">
+            Ayurvedic Constitution &amp; Rogi Pariksha
+          </p>
+        )}
         <p className="text-slate-600 text-sm sm:text-base mt-1">
-          {selectedLanguage === 'te' ? 'ప్రకృతి, అగ్ని, కోష్ఠ మరియు ధాతు నిర్ధారణ కోసం తగిన ఎంపికను ఎంచుకోండి' :
+          {selectedLanguage === 'hi' ? 'प्रकृति, अग्नि, कोष्ठ एवं धातु सार के आकलन हेतु उपयुक्त विकल्प चुनें' :
+           selectedLanguage === 'te' ? 'ప్రకృతి, అగ్ని, కోష్ఠ మరియు ధాతు నిర్ధారణ కోసం తగిన ఎంపಿಕను ఎంచుకోండి' :
            selectedLanguage === 'ta' ? 'உடலமைப்பு, செரிமானம் மற்றும் முக்கிய காரணிகளைத் தேர்ந்தெடுக்கவும்' :
            selectedLanguage === 'kn' ? 'ಪ್ರಕೃತಿ, ಅಗ್ನಿ ಮತ್ತು ಧಾತು ನಿರ್ಧಾರಕ್ಕಾಗಿ ಸೂಕ್ತ ಆಯ್ಕೆಯನ್ನು ಆರಿಸಿ' :
            selectedLanguage === 'ml' ? 'പ്രകൃതി, ദഹനം എന്നിവ വിലയിരുത്തുന്നതിന് അനുയോജ്യമായ ഓപ്ഷൻ തിരഞ്ഞെടുക്കുക' :
            selectedLanguage === 'mr' ? 'प्रकृती, अग्नी, कोष्ठ व धातू सार निश्चितीसाठी योग्य पर्याय निवडा' :
            'Select the appropriate options to assess Prakriti, Agni, Koshtha, and Dhatu Sara'}
         </p>
+        {selectedLanguage !== 'en' && (
+          <p className="text-xs text-slate-400 mt-0.5">
+            Select the appropriate options to assess Prakriti, Agni, Koshtha, and Dhatu Sara
+          </p>
+        )}
       </div>
 
       {/* Live Tridosha Balance Percentage Bar */}
@@ -507,7 +521,18 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
           className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>{activeDeckIndex === 0 ? 'Back to Interview' : 'Previous Pariksha'}</span>
+          <div className="text-left">
+            <span>
+              {activeDeckIndex === 0
+                ? (selectedLanguage === 'te' ? 'సంభాషణకు వెనుకకు' : selectedLanguage === 'ta' ? 'நேர்காணலுக்குத் திரும்பு' : selectedLanguage === 'kn' ? 'ಸಂದರ್ಶನಕ್ಕೆ ಹಿಂತಿರುಗಿ' : selectedLanguage === 'ml' ? 'അഭിമുഖത്തിലേക്ക് മടങ്ങുക' : selectedLanguage === 'mr' ? 'मुलाखतीकडे परत' : selectedLanguage === 'hi' ? 'साक्षात्कार पर वापस' : 'Back to Interview')
+                : (selectedLanguage === 'te' ? 'మునుపటి పరీక్ష' : selectedLanguage === 'ta' ? 'முந்தைய பரீட்சை' : selectedLanguage === 'kn' ? 'ಹಿಂದಿನ ಪರೀಕ್ಷೆ' : selectedLanguage === 'ml' ? 'മുൻപത്തെ പരീക്ഷ' : selectedLanguage === 'mr' ? 'मागील परीक्षा' : selectedLanguage === 'hi' ? 'पिछली परीक्षा' : 'Previous Pariksha')}
+            </span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-[10px] text-slate-400 font-normal">
+                {activeDeckIndex === 0 ? 'Back to Interview' : 'Previous Pariksha'}
+              </span>
+            )}
+          </div>
         </button>
 
         <button
@@ -515,11 +540,20 @@ export const AyushParikshaCards: React.FC<AyushParikshaCardsProps> = ({
           onClick={handleNext}
           className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98"
         >
-          <span>
-            {activeDeckIndex === AYUSH_DASHAVIDHA_CARDS.length - 1
-              ? 'Proceed to Document Scan'
-              : 'Next Pariksha Module'}
-          </span>
+          <div className="text-left">
+            <span>
+              {activeDeckIndex === AYUSH_DASHAVIDHA_CARDS.length - 1
+                ? (selectedLanguage === 'te' ? 'పత్రాల స్కాన్‌కు వెళ్లండి' : selectedLanguage === 'ta' ? 'ஆவண ஸ்கேனுக்கு தொடர்க' : selectedLanguage === 'kn' ? 'ದಾಖಲೆ ಸ್ಕ್ಯಾನ್‌ಗೆ ಮುಂದುವರಿಯಿರಿ' : selectedLanguage === 'ml' ? 'രേഖ സ്കാനിലേക്ക് തുടരുക' : selectedLanguage === 'mr' ? 'कागदपत्र स्कॅनकड पुढे जा' : selectedLanguage === 'hi' ? 'दस्तावेज़ स्कैन के लिए आगे बढ़ें' : 'Proceed to Document Scan')
+                : (selectedLanguage === 'te' ? 'తదుపరి పరీక్ష విభాగం' : selectedLanguage === 'ta' ? 'அடுத்த பரீட்சை பிரிவு' : selectedLanguage === 'kn' ? 'ಮುಂದಿನ ಪರೀಕ್ಷಾ ಘಟಕ' : selectedLanguage === 'ml' ? 'അടുത്ത പരീക്ഷ മൊഡ്യൂൾ' : selectedLanguage === 'mr' ? 'पुढील परीक्षा विभाग' : selectedLanguage === 'hi' ? 'अगला परीक्षा मॉड्यूल' : 'Next Pariksha Module')}
+            </span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-xs text-indigo-200 font-normal">
+                {activeDeckIndex === AYUSH_DASHAVIDHA_CARDS.length - 1
+                  ? 'Proceed to Document Scan'
+                  : 'Next Pariksha Module'}
+              </span>
+            )}
+          </div>
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>

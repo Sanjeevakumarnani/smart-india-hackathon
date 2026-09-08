@@ -31,7 +31,15 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const ALLOWED_LANGUAGE_CODES: LanguageCode[] = ['en', 'te', 'ta', 'kn', 'ml', 'mr'];
+    const ALLOWED_LANGUAGE_CODES: LanguageCode[] = ['en', 'hi', 'te', 'ta', 'kn', 'ml', 'mr'];
+    const LANGUAGE_ORDER: Record<string, number> = {
+      en: 1,
+      ta: 2,
+      te: 3,
+      ml: 4,
+      mr: 5,
+      kn: 6,
+    };
 
     fetch('/api/languages')
       .then((res) => {
@@ -41,6 +49,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
       .then((data: any[]) => {
         const NATIVE_PROMPTS: Record<string, string> = {
           en: 'Welcome. Please select your preferred language to proceed.',
+          hi: 'नमस्ते! MediKiosk में आपका स्वागत है। कृपया अपनी भाषा चुनें।',
           te: 'స్వాగతం! దయచేసి మీ ప్రాధాన్యత గల భాషను ఎంచుకోండి.',
           ta: 'வணக்கம்! தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
           kn: 'ನಮಸ್ಕಾರ! ಮುಂದುವರಿಯಲು ದಯವಿಟ್ಟು ನಿಮ್ಮ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.',
@@ -58,7 +67,7 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
           nativeName: lang.native_name || lang.nativeName || lang.name,
           bcp47: lang.bcp47,
           flagEmoji: lang.flag_emoji || lang.flagEmoji || '🇮🇳',
-          sortOrder: lang.sort_order ?? lang.sortOrder ?? 0,
+          sortOrder: LANGUAGE_ORDER[lang.code] ?? (lang.sort_order ?? lang.sortOrder ?? 0),
           audioPrompt: NATIVE_PROMPTS[lang.code] || `Please select ${lang.name}`,
         }));
         setLanguages(mapped.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));
@@ -68,7 +77,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         console.error('API language fetch error, falling back to static config:', err);
         const NATIVE_PROMPTS: Record<string, string> = {
           en: 'Welcome. Please select your preferred language to proceed.',
-          te: 'స్వాగతం! దయచేసి మీ ప్రాధాన్యత గల భాషను ఎంచుకోండి.',
+          hi: 'नमस्ते! MediKiosk में आपका स्वागत है। कृपया अपनी भाषा चुनें।',
+          te: 'స్వాగతం! దయచేసి మీ ప్రాధಾన్యత గల భాషను ఎంచుకోండి.',
           ta: 'வணக்கம்! தொடர உங்கள் விருப்பமான மொழியைத் தேர்ந்தெடுக்கவும்.',
           kn: 'ನಮಸ್ಕಾರ! ಮುಂದುವರಿಯಲು ದಯವಿಟ್ಟು ನಿಮ್ಮ ಭಾಷೆಯನ್ನು ಆಯ್ಕೆಮಾಡಿ.',
           ml: 'സ്വാഗതം! തുടരാൻ നിങ്ങളുടെ ഭാഷ തിരഞ്ഞെടുക്കുക.',
@@ -76,11 +86,11 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         };
         setLanguages([
           { code: 'en', name: 'English', nativeName: 'English', bcp47: 'en-IN', flagEmoji: '🇬🇧', sortOrder: 1, audioPrompt: NATIVE_PROMPTS.en },
-          { code: 'te', name: 'Telugu', nativeName: 'తెలుగు', bcp47: 'te-IN', flagEmoji: '🇮🇳', sortOrder: 2, audioPrompt: NATIVE_PROMPTS.te },
-          { code: 'ta', name: 'Tamil', nativeName: 'தமிழ்', bcp47: 'ta-IN', flagEmoji: '🇮🇳', sortOrder: 3, audioPrompt: NATIVE_PROMPTS.ta },
-          { code: 'kn', name: 'Kannada', nativeName: 'ಕನ್ನಡ', bcp47: 'kn-IN', flagEmoji: '🇮🇳', sortOrder: 4, audioPrompt: NATIVE_PROMPTS.kn },
-          { code: 'ml', name: 'Malayalam', nativeName: 'മലയാളം', bcp47: 'ml-IN', flagEmoji: '🇮🇳', sortOrder: 5, audioPrompt: NATIVE_PROMPTS.ml },
-          { code: 'mr', name: 'Marathi', nativeName: 'मराठी', bcp47: 'mr-IN', flagEmoji: '🇮🇳', sortOrder: 6, audioPrompt: NATIVE_PROMPTS.mr },
+          { code: 'ta', name: 'Tamil', nativeName: 'தமிழ்', bcp47: 'ta-IN', flagEmoji: '🇮🇳', sortOrder: 2, audioPrompt: NATIVE_PROMPTS.ta },
+          { code: 'te', name: 'Telugu', nativeName: 'తెలుగు', bcp47: 'te-IN', flagEmoji: '🇮🇳', sortOrder: 3, audioPrompt: NATIVE_PROMPTS.te },
+          { code: 'ml', name: 'Malayalam', nativeName: 'മലയാളം', bcp47: 'ml-IN', flagEmoji: '🇮🇳', sortOrder: 4, audioPrompt: NATIVE_PROMPTS.ml },
+          { code: 'mr', name: 'Marathi', nativeName: 'मराठी', bcp47: 'mr-IN', flagEmoji: '🇮🇳', sortOrder: 5, audioPrompt: NATIVE_PROMPTS.mr },
+          { code: 'kn', name: 'Kannada', nativeName: 'ಕನ್ನಡ', bcp47: 'kn-IN', flagEmoji: '🇮🇳', sortOrder: 6, audioPrompt: NATIVE_PROMPTS.kn },
         ]);
         setIsLoading(false);
       });
@@ -150,8 +160,8 @@ export const LanguagePicker: React.FC<LanguagePickerProps> = ({
         </div>
       </div>
 
-      {/* 3 Up and 3 Down Grid (Exactly 3 columns, 2 rows for 6 languages) */}
-      <div className="w-full grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 my-2">
+      {/* Grid supporting 6 Indian regional languages in a balanced 2x3 layout */}
+      <div className="w-full grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 my-2">
         {languages.map((lang) => {
           const isSelected = selectedLanguage === lang.code;
 

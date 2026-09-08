@@ -21,6 +21,7 @@ class SpeechService {
   public getLanguageCodeBCP47(lang: LanguageCode): string {
     const map: { [key in LanguageCode]: string } = {
       en: 'en-IN',
+      hi: 'hi-IN',
       te: 'te-IN',
       ta: 'ta-IN',
       kn: 'kn-IN',
@@ -188,6 +189,46 @@ class SpeechService {
       },
       isSupported: true,
     };
+  }
+
+  public async transcribeWithBhashini(
+    audioBlob: Blob,
+    languageCode: LanguageCode
+  ): Promise<{ transcript: string; source: 'bhashini' | 'browser' }> {
+    try {
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < uint8Array.byteLength; i++) {
+        binary += String.fromCharCode(uint8Array[i]);
+      }
+      const audioBase64 = btoa(binary);
+
+      const bcp47 = this.getLanguageCodeBCP47(languageCode);
+      const langCode = bcp47.split('-')[0];
+
+      const res = await fetch('/api/asr/bhashini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioBase64,
+          languageCode: langCode,
+          sampleRate: 16000,
+        }),
+      });
+
+      if (res.status === 503) {
+        return { transcript: '', source: 'browser' };
+      }
+
+      if (!res.ok) throw new Error(`ASR API ${res.status}`);
+
+      const data = await res.json();
+      return { transcript: data.transcript || '', source: 'bhashini' };
+    } catch (err) {
+      console.warn('[Bhashini ASR] Falling back to browser STT:', err);
+      return { transcript: '', source: 'browser' };
+    }
   }
 }
 

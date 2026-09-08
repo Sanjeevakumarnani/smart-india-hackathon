@@ -126,6 +126,14 @@ export const CHIEF_COMPLAINTS_LIST = [
     badge: 'Pulmonology / Chest OPD',
     isRedFlagPotential: true,
   },
+  {
+    id: 'other_disease',
+    title: 'Other Disease / Condition',
+    icon: 'HelpCircle',
+    color: 'from-indigo-500/20 to-purple-600/30 border-indigo-500/40 text-indigo-700',
+    badge: 'General OPD / AYUSH',
+    isRedFlagPotential: false,
+  },
 ];
 
 export const SOCRATES_QUESTIONS_MAP: { [key: string]: any } = {

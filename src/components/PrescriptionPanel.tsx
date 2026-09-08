@@ -24,6 +24,7 @@ interface PrescriptionPanelProps {
   selectedLanguage: LanguageCode;
   doctorName?: string;
   doctorDepartment?: string;
+  encounterId?: string;
 }
 
 const COMMON_PRESCRIPTION_TEMPLATES = [
@@ -58,6 +59,7 @@ export const PrescriptionPanel: React.FC<PrescriptionPanelProps> = ({
   selectedLanguage,
   doctorName = 'Dr. Priya Sharma (MD)',
   doctorDepartment = 'General Medicine & AYUSH OPD',
+  encounterId,
 }) => {
   const [medications, setMedications] = useState<PrescriptionMedicationItem[]>([
     {
@@ -147,7 +149,7 @@ export const PrescriptionPanel: React.FC<PrescriptionPanelProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          encounterId: 'ENC-CONSULT-' + Date.now().toString().slice(-4),
+          encounterId: encounterId || ('ENC-CONSULT-' + Date.now().toString().slice(-4)),
           patientId: patientProfile?.id || 'PAT-DEFAULT',
           prescribedBy: doctorName,
           doctorDepartment,

@@ -260,20 +260,25 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
       <div className="text-center mb-5">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <Scan className="w-4 h-4 text-indigo-600" />
-          <span>Step 4: AI Document Scanning &amp; History / दस्तावेज़ स्कैन</span>
+          <span>Step 5: {translate('documents', selectedLanguage)}</span>
+          {selectedLanguage !== 'en' && <span className="text-[10px] opacity-75">(Document Scanner)</span>}
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">
-          {selectedLanguage === 'hi'
-            ? 'एआई प्रिस्क्रिप्शन व लैब रिपोर्ट स्कैनिंग'
-            : selectedLanguage === 'ta'
-            ? 'AI மருந்துச் சீட்டு மற்றும் ஆய்வக அறிக்கை ஸ்கேனிங்'
-            : selectedLanguage === 'te'
-            ? 'AI ప్రిస్క్రిప్షన్ మరియు ల్యాబ్ రిపోర్ట్ స్కానింగ్'
-            : 'AI Prescription & Diagnostic Report Scanner'}
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 leading-tight">
+          {translate('docScanTitle', selectedLanguage)}
         </h2>
+        {selectedLanguage !== 'en' && (
+          <p className="text-sm font-semibold text-indigo-700 mt-0.5">
+            {translate('docScanTitle', 'en')}
+          </p>
+        )}
         <p className="text-slate-600 text-xs sm:text-sm mt-1">
-          Handwritten prescriptions &amp; lab reports are recognized and transcribed into structured clinical data
+          {translate('docScanSub', selectedLanguage)}
         </p>
+        {selectedLanguage !== 'en' && (
+          <p className="text-xs text-slate-400 mt-0.5">
+            {translate('docScanSub', 'en')}
+          </p>
+        )}
       </div>
 
       {/* Tabs: Current Scan vs Previous Sessions */}
@@ -282,14 +287,21 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('current_scan')}
-            className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
+            className={`px-5 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
               activeTab === 'current_scan'
                 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm font-black'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-white'
             }`}
           >
-            <Scan className="w-4 h-4" />
-            <span>Scan Documents ({documents.length})</span>
+            <Scan className="w-4 h-4 shrink-0" />
+            <div className="text-left">
+              <span>{translate('scanDocsTab', selectedLanguage)} ({documents.length})</span>
+              {selectedLanguage !== 'en' && (
+                <span className={`block text-[10px] font-normal ${activeTab === 'current_scan' ? 'text-white/80' : 'text-slate-400'}`}>
+                  {translate('scanDocsTab', 'en')}
+                </span>
+              )}
+            </div>
           </button>
 
           <button
@@ -298,14 +310,21 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
               setActiveTab('previous_sessions');
               fetchPreviousSessions();
             }}
-            className={`px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
+            className={`px-5 py-2 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
               activeTab === 'previous_sessions'
                 ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm font-black'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-white'
             }`}
           >
-            <History className="w-4 h-4" />
-            <span>Previous Sessions ({previousDocs.length})</span>
+            <History className="w-4 h-4 shrink-0" />
+            <div className="text-left">
+              <span>{translate('previousDocsTab', selectedLanguage)} ({previousDocs.length})</span>
+              {selectedLanguage !== 'en' && (
+                <span className={`block text-[10px] font-normal ${activeTab === 'previous_sessions' ? 'text-white/80' : 'text-slate-400'}`}>
+                  {translate('previousDocsTab', 'en')}
+                </span>
+              )}
+            </div>
           </button>
         </div>
       </div>
@@ -345,8 +364,16 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
                 <div className="w-12 h-12 rounded-2xl bg-white text-indigo-700 flex items-center justify-center mb-2 group-hover:scale-110 transition border border-indigo-200 shadow-xs">
                   <Camera className="w-6 h-6" />
                 </div>
-                <p className="text-sm font-bold text-slate-900">Scan via Camera</p>
-                <p className="text-[11px] text-indigo-700 mt-0.5">Physical scanner tray</p>
+                <p className="text-sm font-bold text-slate-900">
+                  {translate('cameraScan', selectedLanguage)}
+                </p>
+                {selectedLanguage !== 'en' ? (
+                  <p className="text-[11px] text-indigo-700 mt-0.5 font-medium">
+                    {translate('cameraScan', 'en')}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-indigo-700 mt-0.5">Physical scanner tray</p>
+                )}
               </button>
 
               {/* Button 2: Scan from File Scanner */}
@@ -365,8 +392,16 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
                 <div className="w-12 h-12 rounded-2xl bg-slate-50 text-indigo-700 flex items-center justify-center mb-2 group-hover:scale-110 transition border border-slate-200 shadow-xs">
                   <Scan className="w-6 h-6" />
                 </div>
-                <p className="text-sm font-bold text-slate-900">Scan from Image</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">Capture prescription photo</p>
+                <p className="text-sm font-bold text-slate-900">
+                  {translate('uploadDoc', selectedLanguage)}
+                </p>
+                {selectedLanguage !== 'en' ? (
+                  <p className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                    {translate('uploadDoc', 'en')}
+                  </p>
+                ) : (
+                  <p className="text-[11px] text-slate-500 mt-0.5">Capture prescription photo</p>
+                )}
               </button>
             </div>
 
@@ -468,6 +503,36 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
                     {activeDocPreview.date}
                   </span>
                 </div>
+
+                {/* Low Confidence OCR Review Panel (M5) */}
+                {activeDocPreview && (activeDocPreview.ocrConfidenceScore ?? 95) < 85 && (
+                  <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-400 text-amber-950 shadow-xs">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-start gap-2">
+                        <span className="text-base mt-0.5">⚠️</span>
+                        <div>
+                          <p className="text-xs font-black uppercase tracking-wider text-amber-900">
+                            Low OCR Confidence Score ({activeDocPreview.ocrConfidenceScore}%) — Verification Required
+                          </p>
+                          <p className="text-[11px] text-amber-800 mt-0.5 leading-tight">
+                            Doctor cursive score is below threshold (&lt;85%). Please review and verify medication names before final submission.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updatedDocs = documents.map(d => d.id === activeDocPreview.id ? { ...d, ocrConfidenceScore: 92, pendingReview: false } : d);
+                          onUpdateDocuments(updatedDocs);
+                          setActiveDocPreview({ ...activeDocPreview, ocrConfidenceScore: 92, pendingReview: false });
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs shrink-0 shadow-xs transition active:scale-95"
+                      >
+                        Confirm Accuracy ✓
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Scanned Image Thumbnail if present */}
                 {activeDocPreview.thumbnailUrl && (
@@ -778,7 +843,14 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
           className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>Back</span>
+          <div className="text-left">
+            <span>{translate('back', selectedLanguage)}</span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-[10px] text-slate-400 font-normal">
+                {translate('back', 'en')}
+              </span>
+            )}
+          </div>
         </button>
 
         <button
@@ -786,7 +858,14 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
           onClick={onContinue}
           className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98"
         >
-          <span>Confirm Documents &amp; Proceed</span>
+          <div className="text-left">
+            <span>{translate('confirmDocuments', selectedLanguage)}</span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-xs text-indigo-200 font-normal">
+                {translate('confirmDocuments', 'en')}
+              </span>
+            )}
+          </div>
           <ArrowRight className="w-5 h-5 stroke-[2.5]" />
         </button>
       </div>

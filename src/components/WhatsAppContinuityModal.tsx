@@ -104,6 +104,9 @@ export const WhatsAppContinuityModal: React.FC<WhatsAppContinuityModalProps> = (
 
   const patientFirstName = patientProfile?.fullName?.split(' ')[0] || 'Patient';
   const regionalAudioNotes: Record<LanguageCode, string> = {
+    hi: isAyush
+      ? `नमस्ते ${patientFirstName} जी, डॉक्टर की सलाह के अनुसार अपनी ${dosha} प्रकृति के अनुकूल पथ्य-आहार का पालन करें।`
+      : `नमस्ते ${patientFirstName} जी, डॉक्टर द्वारा बताई गई दवाइयां समय पर लें और किसी भी आपात स्थिति में तुरंत संपर्क करें।`,
     te: isAyush
       ? `నమస్కారం ${patientFirstName} గారు, వైద్యుల సలహా ప్రకారం మీ ${dosha} శరీరతత్వానికి తగిన ఆహార నియమాలను పాటించండి.`
       : `నమస్కారం ${patientFirstName} గారు, డాక్టర్ సూచించిన విధంగా మీ మందులను సమయానికి తీసుకోండి. ఏదైనా అత్యవసరమైతే వెంటనే సంప్రదించండి.`,

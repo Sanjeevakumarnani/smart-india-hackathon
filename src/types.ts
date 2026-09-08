@@ -1,5 +1,6 @@
 export type LanguageCode =
   | 'en'
+  | 'hi'
   | 'te'
   | 'ta'
   | 'kn'
@@ -199,6 +200,7 @@ export interface ClinicalSummary {
   allergies: string;
   familyHistory?: string;
   personalHistory?: string;
+  ros?: string;
   ayushAssessment?: {
     prakriti: string;
     agni: string;
@@ -274,6 +276,7 @@ export type KioskStep =
   | 'PHYSICIAN_CONSOLE'
   | 'QUEUE_DISPLAY'
   | 'CONTINUITY_WHATSAPP'
+  | 'ANALYTICS'
   | 'PATIENT_PORTAL_AUTH'
   | 'PATIENT_PORTAL_DASHBOARD'
   | 'PATIENT_COMPLETE';

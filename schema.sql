@@ -18,7 +18,7 @@ CREATE TABLE patients (
   id VARCHAR(36) PRIMARY KEY,
   abha_id VARCHAR(30) UNIQUE,
   abha_address VARCHAR(255) UNIQUE,
-    aadhaar_number CHAR(12),
+  aadhaar_hash VARCHAR(64),
   aadhaar_last4 CHAR(4),
   full_name VARCHAR(255) NOT NULL,
   age INT,
@@ -123,7 +123,7 @@ CREATE TABLE queue_tokens (
   id VARCHAR(36) PRIMARY KEY,
   encounter_id VARCHAR(36) NOT NULL,
   token_number INT NOT NULL,
-  priority_level ENUM('CRITICAL', 'HIGH', 'NORMAL', 'LOW') DEFAULT 'NORMAL',
+  priority_level ENUM('CRITICAL', 'URGENT', 'ROUTINE') DEFAULT 'ROUTINE',
   is_red_flag BOOLEAN DEFAULT FALSE,
   red_flag_reason VARCHAR(500),
   room_number VARCHAR(100),
@@ -222,7 +222,7 @@ CREATE TABLE documents (
   id VARCHAR(36) PRIMARY KEY,
   encounter_id VARCHAR(36) NOT NULL,
   patient_id VARCHAR(36) NOT NULL,
-  document_type ENUM('prescription', 'lab_report', 'discharge_summary', 'other') DEFAULT 'prescription',
+  document_type ENUM('prescription', 'lab_report', 'discharge_summary', 'imaging', 'other') DEFAULT 'prescription',
   hospital_or_clinic VARCHAR(255),
   doctor_name VARCHAR(255),
   document_date DATE,
@@ -316,12 +316,12 @@ ON DUPLICATE KEY UPDATE display_name=VALUES(display_name);
 
 INSERT INTO supported_languages (id, code, name, native_name, bcp47, flag_emoji, sort_order) VALUES
 ('lang-en', 'en', 'English', 'English', 'en-IN', '🇬🇧', 1),
-('lang-te', 'te', 'Telugu', 'తెలుగు', 'te-IN', '🇮🇳', 2),
-('lang-ta', 'ta', 'Tamil', 'தமிழ்', 'ta-IN', '🇮🇳', 3),
-('lang-kn', 'kn', 'Kannada', 'ಕನ್ನಡ', 'kn-IN', '🇮🇳', 4),
-('lang-ml', 'ml', 'Malayalam', 'മലയാളം', 'ml-IN', '🇮🇳', 5),
-('lang-mr', 'mr', 'Marathi', 'मराठी', 'mr-IN', '🇮🇳', 6)
-ON DUPLICATE KEY UPDATE name=VALUES(name);
+('lang-ta', 'ta', 'Tamil', 'தமிழ்', 'ta-IN', '🇮🇳', 2),
+('lang-te', 'te', 'Telugu', 'తెలుగు', 'te-IN', '🇮🇳', 3),
+('lang-ml', 'ml', 'Malayalam', 'മലയാളം', 'ml-IN', '🇮🇳', 4),
+('lang-mr', 'mr', 'Marathi', 'मराठी', 'mr-IN', '🇮🇳', 5),
+('lang-kn', 'kn', 'Kannada', 'ಕನ್ನಡ', 'kn-IN', '🇮🇳', 6)
+ON DUPLICATE KEY UPDATE name=VALUES(name), sort_order=VALUES(sort_order);
 
 INSERT INTO chief_complaints (id, complaint_key, display_name_en, display_name_hi, display_name_te, display_name_ta, display_name_kn, display_name_ml, display_name_mr, icon, color_class, opd_type, is_red_flag_trigger, sort_order) VALUES
 ('cmp-01', 'chest_pain', 'Chest Pain / Discomfort', 'सीने में दर्द या भारीपन', 'ఛాతీ నొప్పి / అసౌకర్యం', 'மார்பு வலி / அசௌகரியம்', 'ಎದೆ ನೋವು / ಅಸ್ವಸ್ಥತೆ', 'നെഞ്ചുവേദന / അസ്വസ്ഥത', 'छातीत दुखणे / अस्वस्थता', 'Activity', 'text-rose-600 bg-rose-50 border-rose-200', 'both', TRUE, 1),
@@ -332,6 +332,8 @@ INSERT INTO chief_complaints (id, complaint_key, display_name_en, display_name_h
 ('cmp-06', 'headache_dizzy', 'Severe Headache or Dizziness', 'गंभीर सिरदर्द या चक्कर', 'తీవ్రమైన తలనొప్పి లేదా మైకం', 'கடுமையான தலைவலி அல்லது தலைச்சுற்றல்', 'ತೀವ್ರ ತಲೆನೋವು ಅಥವಾ ತಲೆತಿರುಗುವಿಕೆ', 'കഠിനമായ തലവേദന അല്ലെങ്കിൽ തലകറക്കം', 'तीव्र डोकेदुखी किंवा चक्कर', 'Zap', 'text-purple-600 bg-purple-50 border-purple-200', 'both', FALSE, 6),
 ('cmp-07', 'skin_rash', 'Skin Rash / Itching (Kushtha)', 'त्वचा रोग / खुजली', 'చర్మంపై దద్దుర్లు / దురద', 'தோல் வெடிப்பு / அரிப்பு', 'ಚರ್ಮದ ದದ್ದು / ತುರಿಕೆ', 'ത്വക്ക് തിണർപ്പ് / ചൊറിച്ചിൽ', 'त्वचेवर पुरळ / खाज', 'Sparkles', 'text-emerald-600 bg-emerald-50 border-emerald-200', 'ayurveda', FALSE, 7),
 ('cmp-08', 'digestive_issues', 'Indigestion / Constipation (Agni Mandya)', 'अपच या कब्ज', 'అజీర్ణం / మలబద్ధకం', 'செரிமானமின்மை / மலச்சிக்கல்', 'ಅಜೀರ್ಣ / ಮಲಬದ್ಧತೆ', 'ദഹനക്കേട് / മലബന്ധം', 'अपचन / बद्धकोष्ठता', 'Apple', 'text-teal-600 bg-teal-50 border-teal-200', 'ayurveda', FALSE, 8)
+('cmp-08', 'digestive_issues', 'Indigestion / Constipation (Agni Mandya)', 'अपच या कब्ज', 'అజీర్ణం / మలబద్ధకం', 'செரிமானமின்மை / மலச்சிக்கல்', 'ಅಜೀರ್ಣ / ಮಲಬದ್ಧತೆ', 'ദഹനക്കേട് / മലബന്ധം', 'अपचन / बद्धकोष्ठता', 'Apple', 'text-teal-600 bg-teal-50 border-teal-200', 'ayurveda', FALSE, 8),
+('cmp-09', 'other_disease', 'Other Disease / Condition', 'अन्य बीमारी / समस्या', 'ఇతర వ్యాధి / సమస్య', 'மற்ற நோய் / பிரச்சனை', 'ಇತರ ರೋಗ / ಸಮಸ್ಯೆ', 'മറ്റ് രോഗം / പ്രശ്നം', 'इतर आजार / समस्या', 'HelpCircle', 'text-indigo-600 bg-indigo-50 border-indigo-200', 'both', FALSE, 9)
 ON DUPLICATE KEY UPDATE display_name_en=VALUES(display_name_en);
 
 -- ----------------------------------------------------------
@@ -452,6 +454,10 @@ CREATE TABLE staff_actions (
   entity_id       VARCHAR(36),
   description     TEXT,
   ip_address      VARCHAR(45),
+  created_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_staff_actions_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- ----------------------------------------------------------
 -- 23. Doctor Prescriptions
 -- ----------------------------------------------------------
@@ -476,6 +482,27 @@ INSERT INTO users (id, username, password_hash, role, full_name, employee_id, de
   ('usr-doc-001',   'doctor1', '$2b$10$3zM9W51W4L67sJ88O1e4h.gM947dKiq91mN2Kq7K9b9Nq0M1u2Zvy', 'doctor', 'Dr. Priya Sharma (MD)', 'DOC-001', 'General Medicine'),
   ('usr-staff-001', 'staff1', '$2b$10$3zM9W51W4L67sJ88O1e4h.gM947dKiq91mN2Kq7K9b9Nq0M1u2Zvy', 'staff',  'Sister Anita Rao (Staff Nurse)', 'STF-001', 'Triage & OPD')
 ON DUPLICATE KEY UPDATE full_name=VALUES(full_name);
+
+-- ----------------------------------------------------------
+-- 24. Consent Ledger (DPDP 2023 Compliant Audit Trail)
+-- ----------------------------------------------------------
+DROP TABLE IF EXISTS consent_ledger;
+CREATE TABLE consent_ledger (
+  id              VARCHAR(36)   PRIMARY KEY,
+  patient_id      VARCHAR(36),
+  encounter_id    VARCHAR(36),
+  lang_code       VARCHAR(10)   NOT NULL DEFAULT 'en',
+  consent_type    VARCHAR(100)  NOT NULL,
+  consent_version VARCHAR(20)   NOT NULL DEFAULT 'v1.0',
+  is_granted      BOOLEAN       NOT NULL DEFAULT TRUE,
+  consent_text_hash VARCHAR(64),
+  ip_address      VARCHAR(45),
+  device_fingerprint VARCHAR(255),
+  granted_at      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  revoked_at      DATETIME      NULL,
+  INDEX idx_consent_patient (patient_id),
+  INDEX idx_consent_encounter (encounter_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
 

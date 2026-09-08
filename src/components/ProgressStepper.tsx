@@ -30,6 +30,7 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'IDENTITY' as KioskStep,
       related: ['LANGUAGE', 'CONSENT', 'IDENTITY', 'VITALS'],
       label: translate('stepIdentify', language),
+      sublabel: language !== 'en' ? translate('stepIdentify', 'en') : undefined,
       icon: UserCheck,
     },
     {
@@ -37,13 +38,15 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'CONVERSATION' as KioskStep,
       related: ['COMPLAINT_SELECT', 'CONVERSATION'],
       label: translate('stepConverse', language),
+      sublabel: language !== 'en' ? translate('stepConverse', 'en') : undefined,
       icon: MessageSquarePlus,
     },
     {
       id: 'step-3',
       key: opdType === 'ayurveda' ? 'AYUSH_PARIKSHA' as KioskStep : 'FAMILY_HISTORY' as KioskStep,
       related: ['FAMILY_HISTORY', 'AYUSH_PARIKSHA'],
-      label: opdType === 'ayurveda' ? '3. AYUSH Pariksha' : translate('stepHistory', language),
+      label: opdType === 'ayurveda' ? translate('stepAyush', language) : translate('stepHistory', language),
+      sublabel: language !== 'en' ? (opdType === 'ayurveda' ? translate('stepAyush', 'en') : translate('stepHistory', 'en')) : undefined,
       icon: opdType === 'ayurveda' ? Stethoscope : Users,
     },
     {
@@ -51,6 +54,7 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'DOC_SCAN' as KioskStep,
       related: ['DOC_SCAN'],
       label: translate('stepScanDocs', language),
+      sublabel: language !== 'en' ? translate('stepScanDocs', 'en') : undefined,
       icon: FileSearch,
     },
     {
@@ -58,6 +62,7 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'SESSION_PURGE' as KioskStep,
       related: ['SESSION_PURGE'],
       label: translate('stepPrivacy', language),
+      sublabel: language !== 'en' ? translate('stepPrivacy', 'en') : undefined,
       icon: ShieldCheck,
     },
     {
@@ -65,6 +70,7 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
       key: 'SUMMARY_REVIEW' as KioskStep,
       related: ['SUMMARY_REVIEW', 'PHYSICIAN_CONSOLE'],
       label: translate('stepSummary', language),
+      sublabel: language !== 'en' ? translate('stepSummary', 'en') : undefined,
       icon: CheckCircle2,
     },
   ];
@@ -92,8 +98,8 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
   };
 
   return (
-    <div className="w-full max-w-[620px] mx-auto px-2 py-1 xl:py-0">
-      <div className="bg-white/90 border border-slate-200/80 backdrop-blur-md rounded-2xl px-4 sm:px-6 py-2.5 shadow-sm">
+    <div className="w-full max-w-[640px] mx-auto px-2 py-1 xl:py-0">
+      <div className="bg-white/90 border border-slate-200/80 backdrop-blur-md rounded-2xl px-4 sm:px-6 py-2 shadow-sm">
         <div className="flex items-start justify-between relative gap-2">
           <div className="absolute top-5 left-8 right-8 h-0.5 bg-slate-200" />
 
@@ -121,7 +127,7 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
 
                 <div className="mt-1 text-center">
                   <p
-                    className={`text-[10px] sm:text-[11px] font-extrabold whitespace-nowrap ${
+                    className={`text-[10px] sm:text-[11px] font-extrabold whitespace-nowrap leading-tight ${
                       status === 'ACTIVE'
                         ? 'text-slate-900'
                         : status === 'COMPLETED'
@@ -131,6 +137,11 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
                   >
                     {s.label}
                   </p>
+                  {s.sublabel && (
+                    <p className="text-[9px] text-slate-400 font-medium whitespace-nowrap leading-tight mt-0.5">
+                      {s.sublabel}
+                    </p>
+                  )}
                 </div>
               </div>
             );

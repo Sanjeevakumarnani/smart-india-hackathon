@@ -32,6 +32,7 @@ const VITAL_FIELDS: VitalField[] = [
     label: 'Blood Pressure (Systolic)',
     regionalLabels: {
       en: 'Blood Pressure (Upper)',
+      hi: 'रक्तचाप (ऊपरी)',
       te: 'రక్తపోటు (పై భాగం)',
       ta: 'இரத்த அழுத்தம் (மேல்)',
       kn: 'ರಕ್ತದೊತ್ತಡ (ಮೇಲ್ಭಾಗ)',
@@ -52,10 +53,11 @@ const VITAL_FIELDS: VitalField[] = [
     label: 'Blood Pressure (Diastolic)',
     regionalLabels: {
       en: 'Blood Pressure (Lower)',
+      hi: 'रक्तचाप (निचला)',
       te: 'రక్తపోటు (కింది భాగం)',
       ta: 'இரத்த அழுத்தம் (கீழ்)',
       kn: 'ರಕ್ತದೊತ್ತಡ (ಕೆಳಭಾಗ)',
-      ml: 'രക്തസമ്മർദ്ദം (താഴത്തെ)',
+      ml: 'രಕ್ತസമ്മർദ്ദം (താഴത്തെ)',
       mr: 'रक्तदाब (डायस्टोलिक)',
     },
     unit: 'mmHg',
@@ -72,6 +74,7 @@ const VITAL_FIELDS: VitalField[] = [
     label: 'Heart Rate / Pulse',
     regionalLabels: {
       en: 'Heart Rate / Pulse',
+      hi: 'हृदय गति / नाड़ी',
       te: 'గుండె వేగం / నాడి',
       ta: 'இதய துடிப்பு / நாடி',
       kn: 'ಹೃದಯ ಬಡಿತ / ನಾಡಿ',
@@ -92,6 +95,7 @@ const VITAL_FIELDS: VitalField[] = [
     label: 'Oxygen Saturation (SpO₂)',
     regionalLabels: {
       en: 'Oxygen Saturation',
+      hi: 'ऑक्सीजन संतृप्ति (SpO₂)',
       te: 'ఆక్సిజన్ స్థాయి (SpO₂)',
       ta: 'ஆக்ஸிஜன் அளவு (SpO₂)',
       kn: 'ಆಮ್ಲಜನಕ ಮಟ್ಟ (SpO₂)',
@@ -112,6 +116,7 @@ const VITAL_FIELDS: VitalField[] = [
     label: 'Body Temperature',
     regionalLabels: {
       en: 'Body Temperature',
+      hi: 'शरीर का तापमान',
       te: 'శరీర ఉష్ణోగ్రత',
       ta: 'உடல் வெப்பநிலை',
       kn: 'ದೇಹದ ಉಷ್ಣತೆ',
@@ -132,6 +137,7 @@ const VITAL_FIELDS: VitalField[] = [
     label: 'Body Weight',
     regionalLabels: {
       en: 'Body Weight',
+      hi: 'शरीर का वजन',
       te: 'శరీర బరువు',
       ta: 'உடல் எடை',
       kn: 'ದೇಹದ ತೂಕ',
@@ -199,74 +205,124 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
     return v;
   };
 
+  const getVitalAlerts = () => {
+    const alerts: string[] = [];
+    const sys = vitals.bpSystolic;
+    const dia = vitals.bpDiastolic;
+    if (sys !== undefined && dia !== undefined) {
+      if (sys >= 180 || dia >= 120) {
+        alerts.push(`HYPERTENSIVE CRISIS: BP ${sys}/${dia} mmHg — Immediate emergency triage needed`);
+      } else if (sys >= 140 || dia >= 90) {
+        alerts.push(`Stage 2 Hypertension: BP ${sys}/${dia} mmHg`);
+      }
+    }
+    const spo2 = vitals.spO2;
+    if (spo2 !== undefined) {
+      if (spo2 < 90) {
+        alerts.push(`CRITICAL HYPOXEMIA: SpO₂ ${spo2}% — Urgent oxygen intervention required`);
+      } else if (spo2 < 94) {
+        alerts.push(`Low Oxygen Saturation: SpO₂ ${spo2}% — Close observation indicated`);
+      }
+    }
+    const hr = vitals.heartRate;
+    if (hr !== undefined) {
+      if (hr > 140) {
+        alerts.push(`SEVERE TACHYCARDIA: Pulse ${hr} bpm — Rapid evaluation needed`);
+      } else if (hr < 50) {
+        alerts.push(`SEVERE BRADYCARDIA: Pulse ${hr} bpm — Immediate evaluation needed`);
+      }
+    }
+    const temp = vitals.temperature;
+    if (temp !== undefined && temp > 103) {
+      alerts.push(`HYPERPYREXIA: Temperature ${temp}°F — Critical high fever`);
+    }
+    return alerts;
+  };
+
+  const vitalAlerts = getVitalAlerts();
+
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-6">
-      <div className="text-center mb-6">
+    <div className="w-full max-w-4xl mx-auto px-4 py-4 select-none">
+      <div className="text-center mb-4">
         <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-violet-50 border border-indigo-200 text-indigo-700 text-xs font-mono font-bold uppercase tracking-wider mb-2 shadow-sm">
           <Activity className="w-4 h-4 text-indigo-600" />
-          <span>Step 2b: Vitals Capture</span>
+          <span>Step 2: Patient Vitals &amp; Biomarkers</span>
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-slate-900">{translate('recordVitals', selectedLanguage)}</h2>
-        <p className="text-slate-600 text-sm mt-1">
-          {selectedLanguage === 'ta'
-            ? 'மருத்துவ அளவீடுகளை பதிவு செய்யவும் அல்லது தெரியவில்லை என்றால் தவிர்க்கவும்'
-            : selectedLanguage === 'te'
-            ? 'ఆరోగ్య కొలతలను నమోదు చేయండి లేదా తెలియకపోతే వదిలివేయండి'
-            : selectedLanguage === 'kn'
-            ? 'ಆರೋಗ್ಯ ಅಳತೆಗಳನ್ನು ನಮೂದಿಸಿ ಅಥವಾ ತಿಳಿಯದಿದ್ದರೆ ಬಿಟ್ಟುಬಿಡಿ'
-            : selectedLanguage === 'ml'
-            ? 'ആരോഗ്യ അളവുകൾ രേഖപ്പെടുത്തുക അല്ലെങ്കിൽ അറിയില്ലെങ്കിൽ ഒഴിവാക്കുക'
-            : selectedLanguage === 'mr'
-            ? 'आरोग्य मोजमाप नोंदवा किंवा माहित नसल्यास वगळा'
-            : 'Enter measurement from connected medical devices or skip if unavailable'}
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 leading-tight">
+          {translate('recordVitals', selectedLanguage)}
+        </h2>
+        {selectedLanguage !== 'en' && (
+          <p className="text-sm font-semibold text-indigo-700 mt-0.5">
+            {translate('recordVitals', 'en')}
+          </p>
+        )}
+        <p className="text-slate-600 text-xs sm:text-sm mt-1">
+          {translate('recordVitalsSub', selectedLanguage)}
         </p>
+        {selectedLanguage !== 'en' && (
+          <p className="text-xs text-slate-400 mt-0.5">
+            {translate('recordVitalsSub', 'en')}
+          </p>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
         {VITAL_FIELDS.map(field => {
-          const colors = colorMap[field.color] || colorMap.indigo;
-          const val = getDisplayVal(field);
           const isSkipped = skipped.has(field.key);
+          const val = getDisplayVal(field);
+          const colors = colorMap[field.color];
+          const regLabel = field.regionalLabels[selectedLanguage] || field.label;
+
           return (
-            <div key={field.key} className={`p-5 rounded-3xl border-2 shadow-sm transition-all ${
-              isSkipped ? 'bg-slate-100 border-slate-200 opacity-60' : `${colors.bg} ${colors.border}`
-            }`}>
-              <div className="flex items-center justify-between mb-3">
+            <div
+              key={field.key}
+              className={`p-4 rounded-2xl border transition ${
+                isSkipped
+                  ? 'bg-slate-100/60 border-slate-200 opacity-60'
+                  : 'bg-white border-slate-200 shadow-sm hover:border-indigo-300'
+              }`}
+            >
+              <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className={`p-2 rounded-xl bg-white border ${colors.border} ${colors.text} shadow-xs`}>
+                  <div className={`p-2 rounded-xl ${colors.bg} ${colors.text}`}>
                     {field.icon}
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-slate-900 leading-tight">{field.label}</p>
-                    <p className="text-[10px] text-slate-500">{field.regionalLabels[selectedLanguage] || field.regionalLabels.en}</p>
+                    <p className="text-xs font-bold text-slate-800 leading-tight">{regLabel}</p>
+                    <p className="text-[10px] text-slate-500">{field.label}</p>
                   </div>
                 </div>
                 <button
-                  onClick={() => handleSkip(field.key)}
-                  className="p-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-500 hover:text-slate-700 transition shadow-xs"
-                  title="Skip this vital"
+                  type="button"
+                  onClick={() => isSkipped ? handleChange(field.key, field.defaultVal) : handleSkip(field.key)}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-lg border transition ${
+                    isSkipped
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+                  }`}
                 >
-                  <SkipForward className="w-3.5 h-3.5" />
+                  {isSkipped ? 'Include' : 'Skip'}
                 </button>
               </div>
 
               {isSkipped ? (
-                <div className="text-center py-3">
-                  <p className="text-xs text-slate-500 font-bold">Skipped / Not Available</p>
-                  <button onClick={() => setSkipped(prev => { const s = new Set(prev); s.delete(field.key); return s; })} className="mt-1 text-[10px] text-indigo-600 underline">{translate('next', selectedLanguage)}</button>
+                <div className="py-4 text-center">
+                  <p className="text-xs text-slate-400 font-medium">Skipped (Not measured)</p>
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center justify-center gap-3 mb-3">
+                  <div className="flex items-center justify-between mb-1.5">
                     <button
+                      type="button"
                       onClick={() => handleChange(field.key, Math.max(field.min, parseFloat((val - field.step).toFixed(1))))}
                       className={`w-10 h-10 rounded-2xl font-black text-lg ${colors.btn} border ${colors.border} transition active:scale-95 shadow-xs`}
                     >−</button>
                     <div className="text-center">
-                      <span className={`text-3xl font-black font-mono ${colors.text}`}>{typeof val === 'number' ? val.toFixed(field.step < 1 ? 1 : 0) : '--'}</span>
-                      <span className="text-xs text-slate-500 ml-1 font-medium">{field.unit}</span>
+                      <span className="text-2xl font-black text-slate-900 tracking-tight">{val}</span>
+                      <span className="text-xs font-bold text-slate-500 ml-1">{field.unit}</span>
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleChange(field.key, Math.min(field.max, parseFloat((val + field.step).toFixed(1))))}
                       className={`w-10 h-10 rounded-2xl font-black text-lg ${colors.btn} border ${colors.border} transition active:scale-95 shadow-xs`}
                     >+</button>
@@ -277,7 +333,6 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
                     onChange={e => handleChange(field.key, parseFloat(e.target.value))}
                     className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                   />
-                  <p className="text-[10px] text-slate-500 text-center mt-1 font-mono">Normal: {field.normalRange}</p>
                 </>
               )}
             </div>
@@ -285,16 +340,44 @@ export const VitalsCaptureScreen: React.FC<VitalsCaptureScreenProps> = ({
         })}
       </div>
 
+      {/* Critical Vital Red-Flag Alert Banner */}
+      {vitalAlerts.length > 0 && (
+        <div className="mb-4 p-4 rounded-2xl bg-rose-50 border-2 border-rose-400 text-rose-900 shadow-sm animate-pulse">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-base">🚨</span>
+            <p className="text-xs font-black uppercase tracking-wider text-rose-800">
+              Clinical Alert: Critical Biomarkers Detected
+            </p>
+          </div>
+          <div className="space-y-1 mt-1">
+            {vitalAlerts.map((alert, idx) => (
+              <p key={idx} className="text-xs font-bold text-rose-800">• {alert}</p>
+            ))}
+          </div>
+          <p className="text-[11px] text-rose-700 mt-1 font-medium">
+            This patient encounter will be automatically escalated to HIGH PRIORITY emergency triage.
+          </p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-4">
-        <button onClick={onBack} className="py-3.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm">
-          <ArrowLeft className="w-4 h-4" />
-          <span>Back to Identity</span>
-                  <span>{translate('backToIdentity', selectedLanguage)}</span>
+        <button onClick={onBack} className="py-2.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm">
+          <ArrowLeft className="w-4 h-4 shrink-0" />
+          <div className="text-left">
+            <span>{translate('backToIdentity', selectedLanguage)}</span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-[10px] text-slate-400 font-medium">Back to Identity</span>
+            )}
+          </div>
         </button>
-        <button onClick={handleContinue} className="py-4 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98">
-          <span>Confirm Vitals &amp; Select Complaint</span>
-                    <span>{translate('confirmVitals', selectedLanguage)}</span>
-          <ArrowRight className="w-5 h-5 stroke-[2.5]" />
+        <button onClick={handleContinue} className="py-3 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-base flex items-center gap-3 shadow-lg shadow-indigo-600/25 transition active:scale-98">
+          <div className="text-left">
+            <span>{translate('confirmVitals', selectedLanguage)}</span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-[11px] font-normal opacity-85">Confirm Vitals & Select Complaint</span>
+            )}
+          </div>
+          <ArrowRight className="w-5 h-5 stroke-[2.5] shrink-0" />
         </button>
       </div>
     </div>

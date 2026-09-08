@@ -124,7 +124,7 @@ function extractPayload(obj: Record<string, any>): AbhaQrPayload {
  * @returns The decoded and normalised `AbhaQrPayload`.
  * @throws {Error} When the QR code cannot be decoded or the payload is not valid JSON.
  */
-export async function decodeAbhaQr(imageBase64: string): Promise<AbhaQrPayload> {
+export async function decodeAbhaQr(imageBase64: string): Promise<AbhaQrPayload | null> {
   // ── Strategy 1: If the "image" is actually raw JSON (test/mock mode) ──────
   const stripped = imageBase64.replace(/^data:[^;]+;base64,/, '');
   try {
@@ -170,7 +170,7 @@ export async function decodeAbhaQr(imageBase64: string): Promise<AbhaQrPayload> 
     return extractPayload(parsed);
   } catch (zxingErr: any) {
     // If zxing or canvas is not available, return null to let Gemini Vision OCR or fallback take over
-    return null as any;
+    return null;
   }
 }
 

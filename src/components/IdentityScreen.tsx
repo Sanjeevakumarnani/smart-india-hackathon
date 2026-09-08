@@ -781,14 +781,25 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
       <div className="text-center mb-8">
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[11px] font-mono font-bold uppercase tracking-widest mb-3">
           <Shield className="w-3.5 h-3.5" />
-          Step 2 — Patient Identification
+          <span>Step 2 — {translate('identity', selectedLanguage)}</span>
+          {selectedLanguage !== 'en' && <span className="text-[10px] opacity-75">(Patient Identification)</span>}
         </div>
-        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-          Verify & Register Patient
+        <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight leading-tight">
+          {translate('verifyPatient', selectedLanguage)}
         </h2>
-        <p className="text-slate-500 text-sm mt-1.5 max-w-lg mx-auto">
-          Choose how this patient will identify themselves. Their profile will be securely linked to the ABDM health stack.
+        {selectedLanguage !== 'en' && (
+          <p className="text-sm font-semibold text-indigo-700 mt-0.5">
+            {translate('verifyPatient', 'en')}
+          </p>
+        )}
+        <p className="text-slate-500 text-sm mt-1.5 max-w-lg mx-auto leading-relaxed">
+          {translate('verifyPatientSub', selectedLanguage)}
         </p>
+        {selectedLanguage !== 'en' && (
+          <p className="text-xs text-slate-400 mt-0.5">
+            {translate('verifyPatientSub', 'en')}
+          </p>
+        )}
       </div>
 
       {/* ── Tab navigation ──────────────────── */}
@@ -796,18 +807,29 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
         <div className="flex gap-2 bg-slate-100 p-1.5 rounded-2xl w-max mx-auto border border-slate-200 shadow-sm">
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
+            const tabKey = tab.id === 'ABHA' ? 'tabAbha' : tab.id === 'AADHAAR' ? 'tabAadhaar' : 'tabMobile';
+            const regionalLabel = translate(tabKey as any, selectedLanguage);
+            const englishLabel = translate(tabKey as any, 'en');
+
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
+                className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
                   isActive
                     ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
-                    : 'text-slate-500 hover:text-slate-900 hover:bg-white'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white'
                 }`}
               >
                 <span className={isActive ? 'text-white' : 'text-slate-400'}>{tab.icon}</span>
-                <span>{tab.label}</span>
+                <div className="text-left">
+                  <span>{regionalLabel}</span>
+                  {selectedLanguage !== 'en' && (
+                    <span className={`block text-[10px] font-normal leading-none mt-0.5 ${isActive ? 'text-white/80' : 'text-slate-400'}`}>
+                      {englishLabel}
+                    </span>
+                  )}
+                </div>
               </button>
             );
           })}
@@ -1435,10 +1457,15 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
       <div className="flex items-center justify-between gap-4 mt-6">
         <button
           onClick={onBack}
-          className="py-3 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
+          className="py-2.5 px-6 rounded-2xl bg-white hover:bg-slate-50 text-slate-700 font-bold text-sm border border-slate-200 flex items-center gap-2 transition shadow-sm"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Consent
+          <ArrowLeft className="w-4 h-4 shrink-0" />
+          <div className="text-left">
+            <span>{translate('back', selectedLanguage)}</span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-[10px] text-slate-400 font-medium">Back to Consent</span>
+            )}
+          </div>
         </button>
 
         <button
@@ -1450,10 +1477,15 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
               onContinue();
             }
           }}
-          className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center gap-3 shadow-lg shadow-indigo-600/20 transition active:scale-[0.98]"
+          className="py-3 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center gap-3 shadow-lg shadow-indigo-600/20 transition active:scale-[0.98]"
         >
-          Confirm Patient & Record Vitals
-          <ArrowRight className="w-4 h-4 stroke-[2.5]" />
+          <div className="text-left">
+            <span>{translate('confirmVitals', selectedLanguage)}</span>
+            {selectedLanguage !== 'en' && (
+              <span className="block text-[10px] font-normal opacity-85">Confirm Patient & Record Vitals</span>
+            )}
+          </div>
+          <ArrowRight className="w-4 h-4 stroke-[2.5] shrink-0" />
         </button>
       </div>
     </div>

@@ -11,7 +11,8 @@
     "clean": "rm -rf dist server.js",
     "setup:db": "node setup_db.cjs",
     "migrate:patient-abdm": "node migrate_patient_abdm.cjs",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "fix:git": "powershell -Command \"Remove-Item -Force -ErrorAction SilentlyContinue .git\\index; git reset; attrib -U +P .git /S /D; attrib -U +P .git\\* /S /D\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

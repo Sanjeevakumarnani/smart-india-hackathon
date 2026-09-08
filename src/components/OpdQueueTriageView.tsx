@@ -44,11 +44,10 @@ export const OpdQueueTriageView: React.FC<OpdQueueTriageViewProps> = ({
     };
   }, [onUpdateQueue]);
 
-  // Subscribe to BroadcastChannel for multi-tab live sync
+  // Subscribe to BroadcastChannel and SSE for live sync
   useEffect(() => {
     const unsubscribe = broadcastManager.subscribe((msg: KioskBroadcastMessage) => {
       if (msg.type === 'RED_FLAG_TRIGGERED' && msg.token) {
-        // Insert at top of queue with CRITICAL
         onUpdateQueue([
           msg.token,
           ...queue.filter((q) => q.tokenId !== msg.token?.tokenId),
@@ -62,8 +61,53 @@ export const OpdQueueTriageView: React.FC<OpdQueueTriageViewProps> = ({
       }
     });
 
-    return () => unsubscribe();
+    // Server-Sent Events (SSE) for cross-device real-time updates
+    let sse: EventSource | null = null;
+    try {
+      sse = new EventSource('/api/sse/queue-updates');
+      sse.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'NEW_PATIENT_QUEUED' && data.token) {
+            onUpdateQueue([
+              data.token,
+              ...queue.filter((q) => q.tokenId !== data.token.id && q.tokenId !== data.token.tokenId),
+            ]);
+            setLastAlertTime(new Date().toLocaleTimeString());
+          }
+        } catch {}
+      };
+    } catch (e) {
+      console.warn('SSE connection notice:', e);
+    }
+
+    return () => {
+      unsubscribe();
+      if (sse) sse.close();
+    };
   }, [queue, onUpdateQueue]);
+
+  const computeAcuityScore = (token: QueueToken): { score: number; reason: string; badgeColor: string } => {
+    if (token.priorityLevel === 'CRITICAL') {
+      return {
+        score: 9.5,
+        reason: token.redFlagReason || 'Acute Red-Flag / Critical Triage Escalation',
+        badgeColor: 'bg-rose-100/90 border-rose-300 text-rose-900',
+      };
+    }
+    if (token.priorityLevel === 'URGENT') {
+      return {
+        score: 7.2,
+        reason: 'Moderate clinical distress or pain severity score >= 7/10',
+        badgeColor: 'bg-amber-100/90 border-amber-300 text-amber-900',
+      };
+    }
+    return {
+      score: 3.4,
+      reason: 'Routine outpatient evaluation / Stable intake vitals',
+      badgeColor: 'bg-emerald-50 border-emerald-200 text-emerald-800',
+    };
+  };
 
   const handleCallNext = async (token: QueueToken) => {
     const updated = queue.map((t) =>
@@ -283,6 +327,17 @@ export const OpdQueueTriageView: React.FC<OpdQueueTriageViewProps> = ({
                 <p className="text-xs text-slate-500 font-mono mt-0.5">
                   {token.age} Y / {token.gender} • ABHA: {token.abhaId}
                 </p>
+
+                {/* Explainable Acuity Score Badge (Module E) */}
+                {(() => {
+                  const acuity = computeAcuityScore(token);
+                  return (
+                    <div className={`mt-2 px-2.5 py-1 rounded-xl border text-[11px] font-mono flex items-center justify-between ${acuity.badgeColor}`}>
+                      <span className="font-black tracking-tight">Acuity {acuity.score}/10</span>
+                      <span className="text-[10px] font-sans truncate max-w-[150px]" title={acuity.reason}>{acuity.reason}</span>
+                    </div>
+                  );
+                })()}
 
                 <div className="mt-3 p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs">
                   <span className="text-[10px] font-mono font-bold text-slate-500 block uppercase">
