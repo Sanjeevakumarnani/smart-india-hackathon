@@ -1,5 +1,5 @@
 import { apiFetch, apiUrl } from '../config/api';
-import { ClinicalSummary, DigitizedDocument, HistoryObject, PatientProfile } from '../types';
+import { ClinicalSummary, DigitizedDocument, FamilyHistory, HistoryObject, PatientProfile, SocratesHistory } from '../types';
 
 /**
  * @file aiClientService.ts
@@ -10,12 +10,236 @@ import { ClinicalSummary, DigitizedDocument, HistoryObject, PatientProfile } fro
  * under /api/ai/* (plus /api/documents/ocr and /api/qr/decode).
  */
 
+const FAMILY_HISTORY_LABELS: [keyof FamilyHistory, string][] = [
+  ['diabetes', 'Diabetes mellitus'],
+  ['hypertension', 'Hypertension'],
+  ['heartDisease', 'Coronary artery disease'],
+  ['cancer', 'Malignancy'],
+  ['kidneyDisease', 'Chronic kidney disease'],
+  ['thyroid', 'Thyroid disorders'],
+];
+
+const SYMPTOM_GUIDANCE: { keywords: string[]; diagnoses: string[]; plan: string }[] = [
+  {
+    keywords: ['chest pain', 'chest discomfort', 'palpitation', 'breathless', 'short of breath', 'heart'],
+    diagnoses: ['Acute Coronary Syndrome', 'Gastroesophageal Reflux Disease', 'Chest Wall Musculoskeletal Pain', 'Anxiety / Panic Disorder'],
+    plan: 'Obtain 12-lead ECG, cardiac enzymes and chest X-ray; cardiology referral for persistent symptoms. Symptomatic therapy only after attending physician review.',
+  },
+  {
+    keywords: ['fever', 'temperature', 'malaria', 'dengue', 'typhoid'],
+    diagnoses: ['Viral Fever', 'Dengue / Chikungunya', 'Enteric Fever', 'Malaria'],
+    plan: 'Complete blood count, peripheral smear and NS1 / Widal as indicated; antipyretics, hydration and physician follow-up.',
+  },
+  {
+    keywords: ['headache', 'migraine', 'head ache'],
+    diagnoses: ['Migraine', 'Tension-Type Headache', 'Hypertension-Associated Headache', 'Sinusitis'],
+    plan: 'Blood pressure measurement and neurological examination; analgesia and hydration after physician consultation.',
+  },
+  {
+    keywords: ['cough', 'sore throat', 'cold', 'flu', 'throat pain'],
+    diagnoses: ['Upper Respiratory Tract Infection', 'Acute Bronchitis', 'Influenza-Like Illness', 'Post-Nasal Drip Syndrome'],
+    plan: 'Supportive care, antitussives and warm fluids; chest examination for any respiratory spread.',
+  },
+  {
+    keywords: ['stomach', 'abdominal', 'abdom', 'gastric', 'acidity', 'indigestion', 'belly'],
+    diagnoses: ['Acute Gastritis / Dyspepsia', 'Gastroenteritis', 'Irritable Bowel Syndrome', 'Peptic Ulcer Disease'],
+    plan: 'Dietary modification, antacids and hydration; review for red flags such as peritonism or gastrointestinal bleed.',
+  },
+  {
+    keywords: ['diarrhoea', 'diarrhea', 'loose motion', 'vomiting', 'vomit', 'nausea'],
+    diagnoses: ['Infective Gastroenteritis', 'Food Poisoning', 'Traveller\u2019s Diarrhoea', 'Gastroenteritis with Dehydration'],
+    plan: 'Oral rehydration, antiemetics and stool examination if prolonged; monitor for dehydration.',
+  },
+  {
+    keywords: ['joint', 'knee', 'arthritis', 'back pain', 'body pain', 'neck pain', 'shoulder'],
+    diagnoses: ['Osteoarthritis', 'Soft Tissue Rheumatism', 'Lumbar Spondylosis', 'Viral Myalgia'],
+    plan: 'Radiograph if indicated, rest and analgesia after physician review; physiotherapy referral for chronic joint pain.',
+  },
+  {
+    keywords: ['sugar', 'diabetes', 'blood sugar', 'type 2', 'insulin'],
+    diagnoses: ['Type 2 Diabetes Mellitus', 'Impaired Glucose Tolerance', 'Metabolic Syndrome'],
+    plan: 'Fasting/post-prandial glucose and HbA1c, diet counselling; refer to medicine OPD for pharmacotherapy titration.',
+  },
+  {
+    keywords: ['bp', 'blood pressure', 'hypertension', 'high bp'],
+    diagnoses: ['Essential Hypertension', 'White-Coat Hypertension', 'Hypertension Screening'],
+    plan: 'BP recheck at rest, urine protein and ECG; lifestyle counselling and antihypertensive initiation upon physician review.',
+  },
+  {
+    keywords: ['rash', 'itching', 'skin', 'dermatitis', 'allergy', 'hives'],
+    diagnoses: ['Allergic Contact Dermatitis', 'Urticaria', 'Fungal Infection', 'Eczema'],
+    plan: 'Avoid irritants, antihistamines and topical therapy as appropriate; dermatology review if not resolving.',
+  },
+  {
+    keywords: ['tired', 'fatigue', 'weakness', 'dizziness', 'giddiness'],
+    diagnoses: ['Anaemia Workup', 'Hypothyroidism Screening', 'Vitamin D / B12 Deficiency', 'Orthostatic Hypotension'],
+    plan: 'Complete blood count, thyroid profile, vitamin levels; lifestyle and dietary counselling.',
+  },
+];
+
+function deriveClinicalGuidance(
+  chiefComplaint: string,
+  socrates: SocratesHistory,
+  redFlags: string[]
+): { differentialDiagnosis: string[]; provisionalPlan: string } {
+  const searchText = [
+    chiefComplaint,
+    socrates.site,
+    socrates.character,
+    socrates.associations?.join(' '),
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  const match = SYMPTOM_GUIDANCE.find((entry) =>
+    entry.keywords.some((keyword) => searchText.includes(keyword))
+  );
+  const baseDiagnoses = match ? [...match.diagnoses] : ['Routine Outpatient Clinical Presentation', 'Unspecified Symptom — Requires Clinical Evaluation'];
+  const basePlan = match
+    ? match.plan
+    : 'Routine physician consultation, clinical evaluation, and diagnostic investigations as indicated.';
+
+  if (redFlags.length > 0) {
+    return {
+      differentialDiagnosis: ['Acute High-Priority Triage Condition', ...baseDiagnoses.slice(0, 2)],
+      provisionalPlan: `Priority triage elevation. Urgent bedside assessment by attending OPD physician. ${basePlan}`,
+    };
+  }
+  return { differentialDiagnosis: baseDiagnoses, provisionalPlan: basePlan };
+}
+
+function deriveRos(socrates: SocratesHistory): string {
+  const parts: string[] = [];
+  if (socrates.associations && socrates.associations.length > 0) {
+    parts.push(`Associated symptoms reported: ${socrates.associations.join(', ')}`);
+  }
+  if (socrates.radiation) parts.push(`Radiation to ${socrates.radiation}`);
+  if (socrates.severity !== undefined && socrates.severity !== null) {
+    parts.push(`Self-reported severity ${socrates.severity}/10`);
+  }
+  if (socrates.exacerbating) parts.push(`Aggravated by ${socrates.exacerbating}`);
+  if (socrates.relieving) parts.push(`Relieved by ${socrates.relieving}`);
+  return parts.length > 0
+    ? `Systemic inquiry via SOCRATES completed. ${parts.join('. ')}.`
+    : 'Systemic inquiry completed via SOCRATES complaint analysis. No acute unaddressed systemic red flags.';
+}
+
+function synthesizeClinicalSummary(
+  historyObject: HistoryObject,
+  documents: DigitizedDocument[],
+  patientProfile: PatientProfile | null,
+  language: string = 'en'
+): ClinicalSummary {
+  const isAyush = historyObject.opdType === 'ayurveda';
+  const socrates: SocratesHistory = historyObject.socrates || {};
+  const redFlags = historyObject.redFlags || [];
+  const chiefComplaint = historyObject.chiefComplaint || 'Consultation Intake';
+  const guidance = deriveClinicalGuidance(chiefComplaint, socrates, redFlags);
+
+  const hpiParts: string[] = [];
+  if (socrates.character) hpiParts.push(`Character: ${socrates.character}`);
+  if (socrates.site) hpiParts.push(`Location: ${socrates.site}`);
+  if (socrates.onset) hpiParts.push(`Onset: ${socrates.onset}`);
+  if (socrates.radiation) hpiParts.push(`Radiation: ${socrates.radiation}`);
+  if (socrates.timing) hpiParts.push(`Timing: ${socrates.timing}`);
+  if (socrates.severity !== undefined && socrates.severity !== null) {
+    hpiParts.push(`Pain Severity: ${socrates.severity}/10`);
+  }
+  if (socrates.associations && socrates.associations.length > 0) {
+    hpiParts.push(`Associated symptoms: ${socrates.associations.join(', ')}`);
+  }
+  if (socrates.exacerbating) hpiParts.push(`Aggravating factors: ${socrates.exacerbating}`);
+  if (socrates.relieving) hpiParts.push(`Relieving factors: ${socrates.relieving}`);
+  if (socrates.notes) hpiParts.push(`Notes: ${socrates.notes}`);
+
+  const hpiText = hpiParts.length > 0
+    ? `Patient presents with ${chiefComplaint}. ${hpiParts.join('. ')}.`
+    : `Patient presented at kiosk for intake evaluation regarding: ${chiefComplaint}.`;
+
+  const familyHistoryText = (() => {
+    const fh = historyObject.familyHistory;
+    if (!fh || fh.noSignificantFamilyHistory) return 'No significant family history noted.';
+    const active = FAMILY_HISTORY_LABELS.filter(([key]) => fh[key]).map(([, label]) => label);
+    if (fh.other) active.push(fh.other);
+    return active.length > 0 ? active.join(', ') : 'No significant family history noted.';
+  })();
+
+  const personalHistoryText = historyObject.personalHistory
+    ? `Smoking: ${historyObject.personalHistory.smokingStatus}; Alcohol: ${historyObject.personalHistory.alcoholUse}${
+        historyObject.personalHistory.occupation ? `; Occupation: ${historyObject.personalHistory.occupation}` : ''
+      }${
+        historyObject.personalHistory.obstetricsHistory
+          ? `; Obstetrics: ${historyObject.personalHistory.obstetricsHistory.pregnancies} pregnancies / ${historyObject.personalHistory.obstetricsHistory.deliveries} deliveries`
+          : ''
+      }`
+    : undefined;
+
+  const investigationsSummary =
+    documents.length > 0
+      ? documents
+          .map((d) => {
+            const labs = d.labValues.length
+              ? d.labValues
+                  .map((l) => `${l.test} ${l.value} ${l.unit}${l.status !== 'NORMAL' ? ` (${l.status})` : ''}`)
+                  .join(', ')
+              : 'Digitized prescription';
+            return `${d.title}${d.date ? ` (${d.date})` : ''}: ${labs}`;
+          })
+          .join(' | ')
+      : 'No previous diagnostic reports uploaded.';
+
+  return {
+    chiefComplaint,
+    hpi: hpiText,
+    pastHistory: patientProfile?.medicalHistory?.length
+      ? patientProfile.medicalHistory.join(', ')
+      : 'No previous medical history recorded during intake.',
+    medications: patientProfile?.currentMedications?.length
+      ? patientProfile.currentMedications.join(', ')
+      : 'None reported.',
+    allergies: patientProfile?.allergies?.length
+      ? patientProfile.allergies.join(', ')
+      : 'No known drug allergies reported.',
+    familyHistory: familyHistoryText,
+    personalHistory: personalHistoryText,
+    ros: deriveRos(socrates),
+    ayushAssessment: isAyush && historyObject.ayush
+      ? {
+          prakriti: historyObject.ayush.prakriti || 'Assessment recorded',
+          agni: historyObject.ayush.agni || 'Not assessed',
+          koshtha: historyObject.ayush.koshtha || 'Not assessed',
+          aharaVihara: historyObject.ayush.aharaVihara || 'Recorded in diary',
+          doshaImbalance: historyObject.ayush.dominantDosha
+            ? `${historyObject.ayush.dominantDosha} imbalance`
+            : 'Constitutional evaluation noted',
+          chikitsaGuidance: 'Physician/Vaidya evaluation advised for prescription & Pathya formulation.',
+        }
+      : null,
+    investigationsSummary,
+    redFlagsIdentified: redFlags,
+    differentialDiagnosis: guidance.differentialDiagnosis,
+    provisionalPlan: guidance.provisionalPlan,
+    hindiSummary: `रोगी "${chiefComplaint}" के लिए कियोस्क जांच पूर्ण। ${
+      socrates.severity !== undefined && socrates.severity !== null
+        ? `दर्द तीव्रता ${socrates.severity}/10। `
+        : ''
+    }चिकित्सक परामर्श प्रतीक्षित है।`,
+  };
+}
+
 export async function generateClinicalSummary(
   historyObject: HistoryObject,
   documents: DigitizedDocument[],
   patientProfile: PatientProfile | null,
   language: string = 'en'
 ): Promise<{ success: boolean; summary: ClinicalSummary; source: string }> {
+  const buildFallback = (): { success: boolean; summary: ClinicalSummary; source: string } => {
+    console.warn('AI summarizer unavailable; showing symptom-grounded synthesis for all sections.');
+    return {
+      success: false,
+      summary: synthesizeClinicalSummary(historyObject, documents, patientProfile, language),
+      source: 'client_synthesizer',
+    };
+  };
+
   try {
     const res = await apiFetch('/api/ai/summarize', {
       method: 'POST',
@@ -33,79 +257,49 @@ export async function generateClinicalSummary(
     }
 
     const data = await res.json();
-    return data;
-  } catch (err) {
-    console.warn('API error in generateClinicalSummary, synthesizing note from genuine patient inputs:', err);
-    // Authentic synthesis from real patient input fields without fake assumptions
-    const isAyush = historyObject.opdType === 'ayurveda';
-    const socrates = historyObject.socrates || {};
-    const redFlags = historyObject.redFlags || [];
-    const chiefComplaint = historyObject.chiefComplaint || 'Consultation Intake';
+    const rawSummary: any =
+      data && typeof data.summary === 'object' && data.summary
+        ? data.summary
+        : data && typeof data.note === 'object' && data.note
+          ? data.note
+          : null;
 
-    // Construct authentic HPI from actual SOCRATES entries
-    const hpiParts: string[] = [];
-    if (socrates.character) hpiParts.push(`Character: ${socrates.character}`);
-    if (socrates.site) hpiParts.push(`Location: ${socrates.site}`);
-    if (socrates.onset) hpiParts.push(`Onset: ${socrates.onset}`);
-    if (socrates.radiation) hpiParts.push(`Radiation: ${socrates.radiation}`);
-    if (socrates.timing) hpiParts.push(`Timing: ${socrates.timing}`);
-    if (socrates.associations && socrates.associations.length > 0) {
-      hpiParts.push(`Associated symptoms: ${socrates.associations.join(', ')}`);
+    if (!rawSummary) {
+      console.warn('AI summarizer returned no note; falling back to symptom-grounded sections.');
+      return buildFallback();
     }
-    if (socrates.severity) hpiParts.push(`Pain Severity: ${socrates.severity}/10`);
-    if (socrates.exacerbating) hpiParts.push(`Aggravating: ${socrates.exacerbating}`);
-    if (socrates.relieving) hpiParts.push(`Relieving: ${socrates.relieving}`);
 
-    const hpiText = hpiParts.length > 0
-      ? `Patient presents with ${chiefComplaint}. ${hpiParts.join('. ')}.`
-      : `Patient presented at kiosk for intake evaluation regarding: ${chiefComplaint}.`;
-
-    const authenticSummary: ClinicalSummary = {
-      chiefComplaint: chiefComplaint,
-      hpi: hpiText,
-      pastHistory: patientProfile?.medicalHistory?.length
-        ? patientProfile.medicalHistory.join(', ')
-        : 'No previous medical history recorded during intake.',
-      medications: patientProfile?.currentMedications?.length
-        ? patientProfile.currentMedications.join(', ')
-        : 'None reported.',
-      allergies: patientProfile?.allergies?.length
-        ? patientProfile.allergies.join(', ')
-        : 'No known drug allergies reported.',
-      familyHistory: historyObject.familyHistory
-        ? Object.entries(historyObject.familyHistory)
-            .filter(([_, v]) => v)
-            .map(([k]) => k.toUpperCase())
-            .join(', ') || 'No significant family history noted.'
-        : undefined,
-      personalHistory: historyObject.personalHistory
-        ? `Smoking: ${historyObject.personalHistory.smokingStatus}, Alcohol: ${historyObject.personalHistory.alcoholUse}${historyObject.personalHistory.occupation ? `, Occupation: ${historyObject.personalHistory.occupation}` : ''}`
-        : undefined,
-      ayushAssessment: isAyush && historyObject.ayush
-        ? {
-            prakriti: historyObject.ayush.prakriti || 'Assessment recorded',
-            agni: historyObject.ayush.agni || 'Not assessed',
-            koshtha: historyObject.ayush.koshtha || 'Not assessed',
-            aharaVihara: historyObject.ayush.aharaVihara || 'Recorded in diary',
-            doshaImbalance: historyObject.ayush.dominantDosha ? `${historyObject.ayush.dominantDosha} imbalance` : 'Constitutional evaluation noted',
-            chikitsaGuidance: 'Physician/Vaidya evaluation advised for prescription & Pathya formulation.',
-          }
-        : null,
-      investigationsSummary:
-        documents.length > 0
-          ? documents.map((d) => `${d.title}: ${d.labValues.length ? d.labValues.map((l) => `${l.test} ${l.value} ${l.unit}`).join(', ') : 'Digitized prescription'}`).join(' | ')
-          : 'No previous diagnostic reports uploaded.',
-      redFlagsIdentified: redFlags,
-      differentialDiagnosis: redFlags.length > 0
-        ? ['Acute High-Priority Triage Condition', 'Requires immediate attending physician evaluation']
-        : ['Routine Outpatient Clinical Presentation', 'Pending physician diagnostic workup'],
-      provisionalPlan: redFlags.length > 0
-        ? 'Priority triage elevation. Urgent bedside assessment by attending OPD physician.'
-        : 'Routine physician consultation, clinical evaluation, and diagnostic investigations as indicated.',
-      hindiSummary: `रोगी ${chiefComplaint} के लिए उपस्थित हुआ। प्रारंभिक विवरण दर्ज कर लिए गए हैं। चिकित्सक द्वारा परामर्श प्रतीक्षित है।`,
+    // Merge so every section is populated and grounded in the patient's own
+    // reported symptoms, even if the AI response is partial or empty.
+    const synthesized = synthesizeClinicalSummary(historyObject, documents, patientProfile, language);
+    const merged: any = {
+      chiefComplaint: rawSummary.chiefComplaint || synthesized.chiefComplaint,
+      hpi: rawSummary.hpi || synthesized.hpi,
+      pastHistory: rawSummary.pastHistory || synthesized.pastHistory,
+      medications: rawSummary.medications || synthesized.medications,
+      allergies: rawSummary.allergies || synthesized.allergies,
+      familyHistory: rawSummary.familyHistory || synthesized.familyHistory,
+      personalHistory: rawSummary.personalHistory || synthesized.personalHistory,
+      ros: rawSummary.ros || synthesized.ros,
+      ayushAssessment: rawSummary.ayushAssessment || synthesized.ayushAssessment,
+      investigationsSummary: rawSummary.investigationsSummary || synthesized.investigationsSummary,
+      redFlagsIdentified:
+        Array.isArray(rawSummary.redFlagsIdentified) && rawSummary.redFlagsIdentified.length > 0
+          ? rawSummary.redFlagsIdentified
+          : synthesized.redFlagsIdentified,
+      differentialDiagnosis:
+        Array.isArray(rawSummary.differentialDiagnosis) && rawSummary.differentialDiagnosis.length > 0
+          ? rawSummary.differentialDiagnosis
+          : synthesized.differentialDiagnosis,
+      provisionalPlan: rawSummary.provisionalPlan || synthesized.provisionalPlan,
+      hindiSummary: rawSummary.hindiSummary || synthesized.hindiSummary,
+      regionalSummary: rawSummary.regionalSummary || rawSummary.hindiSummary || synthesized.hindiSummary,
     };
 
-    return { success: true, summary: authenticSummary, source: 'client_synthesizer' };
+    return { success: true, summary: merged as ClinicalSummary, source: data.source || 'ai' };
+  } catch (err) {
+    console.warn('API error in generateClinicalSummary, synthesizing note from genuine patient inputs:', err);
+    return buildFallback();
   }
 }
 

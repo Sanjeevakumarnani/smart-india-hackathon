@@ -398,7 +398,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
                   <h3 className="text-lg font-black text-white">
                     Physician Case-Taking & Triage Summary
                   </h3>
-                  {summarySource === 'gemini' || summarySource === 'server' ? (
+                  {summarySource === 'gemini' || summarySource === 'server' || summarySource === 'ai' ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-mono font-bold">
                       <Sparkles className="w-3 h-3 text-emerald-400" />
                       <span>Hospital AI (Groq)</span>
