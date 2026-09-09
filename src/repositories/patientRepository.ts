@@ -99,7 +99,13 @@ export class PatientRepository {
         'SELECT * FROM patients WHERE abha_id IN (?, ?) OR abha_address = ? LIMIT 1',
         [raw, formatted, raw.toLowerCase()]
       );
-      return (rows as any[]).length ? mapPatient((rows as any[])[0]) : null;
+      if ((rows as any[]).length) return mapPatient((rows as any[])[0]);
+      const match = inMemoryDb.patients.find((p) => {
+        const storedAbha = (p.abhaId || p.abha_id || '').replace(/\D/g, '');
+        const storedAddr = (p.abhaAddress || p.abha_address || '').toLowerCase();
+        return (cleanDigits && storedAbha === cleanDigits) || (raw.includes('@') && storedAddr === raw.toLowerCase());
+      });
+      return match ? mapPatient(match) : null;
     } catch {
       // Database unavailable — fall back to in-memory store.
       const match = inMemoryDb.patients.find(
@@ -128,7 +134,11 @@ export class PatientRepository {
         'SELECT * FROM patients WHERE abha_address = ? LIMIT 1',
         [address.toLowerCase()]
       );
-      return (rows as any[]).length ? mapPatient((rows as any[])[0]) : null;
+      if ((rows as any[]).length) return mapPatient((rows as any[])[0]);
+      const match = inMemoryDb.patients.find(
+        (p) => (p.abhaAddress ?? p.abha_address)?.toLowerCase() === address.toLowerCase()
+      );
+      return match ? mapPatient(match) : null;
     } catch {
       const match = inMemoryDb.patients.find(
         (p) => (p.abhaAddress ?? p.abha_address)?.toLowerCase() === address.toLowerCase()
@@ -150,7 +160,11 @@ export class PatientRepository {
         'SELECT * FROM patients WHERE aadhaar_number = ? LIMIT 1',
         [digits]
       );
-      return (rows as any[]).length ? mapPatient((rows as any[])[0]) : null;
+      if ((rows as any[]).length) return mapPatient((rows as any[])[0]);
+      const match = inMemoryDb.patients.find(
+        (p) => (p.aadhaarNumber ?? p.aadhaar_number)?.replace(/\D/g, '') === digits
+      );
+      return match ? mapPatient(match) : null;
     } catch {
       const match = inMemoryDb.patients.find(
         (p) => (p.aadhaarNumber ?? p.aadhaar_number)?.replace(/\D/g, '') === digits
@@ -178,7 +192,12 @@ export class PatientRepository {
         `SELECT * FROM patients WHERE phone IN (${placeholders}) LIMIT 1`,
         variants
       );
-      return (rows as any[]).length ? mapPatient((rows as any[])[0]) : null;
+      if ((rows as any[]).length) return mapPatient((rows as any[])[0]);
+      const match = inMemoryDb.patients.find((p) => {
+        const stored = (p.phone ?? '').replace(/\D/g, '').replace(/^91/, '');
+        return stored && stored === digits;
+      });
+      return match ? mapPatient(match) : null;
     } catch {
       const match = inMemoryDb.patients.find((p) => {
         const stored = (p.phone ?? '').replace(/\D/g, '').replace(/^91/, '');

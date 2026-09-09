@@ -4,15 +4,17 @@
  *
  * Implements three ABDM v3 authentication paths:
  *   PATH 1 — ABHA ID or QR Code scan
- *   PATH 2 — Aadhaar OTP (ABDM two-step state machine)
- *   PATH 3 — Mobile Number OTP with demographic fallback
+ *   PATH 2 — Aadhaar number
+ *   PATH 3 — Mobile number
+ *
+ * The OTP verification system is removed: any valid number/identifier is
+ * accepted immediately — known demo patients are matched, unknown numbers
+ * proceed as walk-in patients.
  *
  * Design principles:
  *  - No `alert()` calls — all errors surface as inline banners
  *  - Animated panel transitions using the `motion` package
  *  - Two-column layout on desktop, single-column on mobile
- *  - OTP countdown timer with "Resend" action
- *  - Stage-based mobile flow: phone → OTP → (optional) demographics
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -29,7 +31,6 @@ import {
   MicOff,
   Phone,
   UserPlus,
-  RefreshCw,
   AlertCircle,
   Fingerprint,
   User,
@@ -48,8 +49,6 @@ import { translate } from '../services/i18n';
 // ─────────────────────────────────────────────
 // Constants & helpers
 // ─────────────────────────────────────────────
-
-const OTP_COUNTDOWN_SECONDS = 30;
 
 function formatAbhaNumber(value: string): string {
   const digits = value.replace(/\D/g, '').slice(0, 14);
@@ -137,43 +136,7 @@ const InfoBanner: React.FC<{ message: string | null; variant?: 'success' | 'info
   );
 };
 
-/** OTP countdown timer with resend action. */
-const OtpTimer: React.FC<{ onResend: () => void; isResending: boolean }> = ({
-  onResend,
-  isResending,
-}) => {
-  const [seconds, setSeconds] = useState(OTP_COUNTDOWN_SECONDS);
-
-  useEffect(() => {
-    if (seconds <= 0) return;
-    const t = setTimeout(() => setSeconds((s) => s - 1), 1000);
-    return () => clearTimeout(t);
-  }, [seconds]);
-
-  return (
-    <div className="flex items-center gap-2 text-xs text-slate-500">
-      {seconds > 0 ? (
-        <span>
-          Resend OTP in{' '}
-          <span className="font-bold text-indigo-600 tabular-nums">{seconds}s</span>
-        </span>
-      ) : (
-        <button
-          type="button"
-          onClick={() => {
-            setSeconds(OTP_COUNTDOWN_SECONDS);
-            onResend();
-          }}
-          disabled={isResending}
-          className="flex items-center gap-1 text-indigo-600 font-bold hover:text-indigo-800 disabled:opacity-50 transition"
-        >
-          <RefreshCw className={`w-3 h-3 ${isResending ? 'animate-spin' : ''}`} />
-          Resend OTP
-        </button>
-      )}
-    </div>
-  );
-};
+/** OTP countdown timer with resend action. — REMOVED: no OTP verification system. */
 
 /** Labelled form field wrapper with optional inline error. */
 const Field: React.FC<{
@@ -221,14 +184,14 @@ const TABS: { id: TabId; label: string; sublabel: string; icon: React.ReactNode 
   },
   {
     id: 'AADHAAR',
-    label: 'Aadhaar OTP',
-    sublabel: 'ABDM enrolment',
+    label: 'Aadhaar',
+    sublabel: '12-digit number',
     icon: <Fingerprint className="w-5 h-5" />,
   },
   {
     id: 'MOBILE',
-    label: 'Mobile OTP',
-    sublabel: 'PHR login',
+    label: 'Mobile Number',
+    sublabel: '10-digit number',
     icon: <Phone className="w-5 h-5" />,
   },
 ];
@@ -269,6 +232,16 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   const [customPhone, setCustomPhone] = useState(patientProfile?.phone || '');
   const [globalError, setGlobalError] = useState<string | null>(null);
 
+  // ── Demo OTP state (any 4-digit code is accepted) ──
+  const [pendingOtp, setPendingOtp] = useState<{
+    path: TabId;
+    patient: any;
+    identifier: string;
+  } | null>(null);
+  const [otpInput, setOtpInput] = useState('');
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [isOtpLoading, setIsOtpLoading] = useState(false);
+
   // ── ABHA Lookup state ──────────────────────
   const [isAbhaLoading, setIsAbhaLoading] = useState(false);
   const [abhaWelcomeName, setAbhaWelcomeName] = useState<string | null>(null);
@@ -284,28 +257,16 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
 
-  // ── Aadhaar OTP state ─────────────────────
-  const [aadhaarOtp, setAadhaarOtp] = useState('');
-  const [aadhaarTxnId, setAadhaarTxnId] = useState('');
-  const [aadhaarOtpSent, setAadhaarOtpSent] = useState(false);
+  // ── Aadhaar state ─────────────────────────
   const [isAadhaarLoading, setIsAadhaarLoading] = useState(false);
   const [aadhaarError, setAadhaarError] = useState<string | null>(null);
   const [aadhaarSuccess, setAadhaarSuccess] = useState<string | null>(null);
 
-  // ── Mobile OTP state — 3 stages ───────────
-  type MobileStage = 'PHONE_INPUT' | 'OTP_VERIFY' | 'DEMOGRAPHICS';
-  const [mobileStage, setMobileStage] = useState<MobileStage>('PHONE_INPUT');
+  // ── Mobile state ──────────────────────────
   const [mobileInput, setMobileInput] = useState('');
-  const [mobileOtp, setMobileOtp] = useState('');
-  const [mobileTxnId, setMobileTxnId] = useState('');
   const [isMobileLoading, setIsMobileLoading] = useState(false);
   const [mobileError, setMobileError] = useState<string | null>(null);
   const [mobileInfo, setMobileInfo] = useState<string | null>(null);
-  // Demographics collected in stage 3 (REGISTRATION_REQUIRED)
-  const [mobileFirstName, setMobileFirstName] = useState('');
-  const [mobileLastName, setMobileLastName] = useState('');
-  const [mobileAge, setMobileAge] = useState('');
-  const [mobileSex, setMobileSex] = useState<'Male' | 'Female' | 'Other'>('Male');
 
   // ── Voice state ────────────────────────────
   const [isListeningVoice, setIsListeningVoice] = useState(false);
@@ -316,9 +277,6 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   // ── Walk-in ABHA creation ──────────────────
   const [showAbhaCreation, setShowAbhaCreation] = useState(false);
   const [createAadhaar, setCreateAadhaar] = useState('');
-  const [createOtpSent, setCreateOtpSent] = useState(false);
-  const [createOtp, setCreateOtp] = useState('');
-  const [createTxnId, setCreateTxnId] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [createdAbha, setCreatedAbha] = useState<{ abhaId: string; abhaAddress: string } | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -409,8 +367,8 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
         identifier,
         demographicPayload: scannedProfile,
       });
-      if (verification.status === 'REGISTRATION_REQUIRED') {
-        throw new Error('ABHA data verified but demographic details are incomplete. Use the ABHA tab to fill in missing fields.');
+      if (verification.status !== 'VERIFIED' || !verification.patient) {
+        throw new Error('ABHA data could not be verified. Use the ABHA tab to try again.');
       }
       const profile = toPatientProfile(verification.patient, scannedProfile);
       onSelectProfile(profile);
@@ -449,10 +407,10 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   };
 
   // ─────────────────────────────────────────────
-  // Aadhaar OTP handlers
+  // Aadhaar — accept any number, no OTP
   // ─────────────────────────────────────────────
 
-  const handleSendAadhaarOtp = async () => {
+  const handleAadhaarSubmit = async () => {
     const clean = aadhaarInput.replace(/\D/g, '');
     if (clean.length !== 12) {
       setAadhaarError('Aadhaar number must be exactly 12 digits.');
@@ -463,33 +421,8 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
     try {
       const result = await verifyAndRegisterRequest({
         path: 'aadhaar',
-        action: 'send_otp',
+        action: 'verify',
         identifier: clean,
-      });
-      setAadhaarTxnId(result.txnId || '');
-      setAadhaarOtpSent(true);
-      setAadhaarSuccess('OTP sent to your Aadhaar-linked mobile number.');
-    } catch (e: any) {
-      setAadhaarError(e.message || 'Failed to send OTP. Please try again.');
-    } finally {
-      setIsAadhaarLoading(false);
-    }
-  };
-
-  const handleVerifyAadhaarOtp = async () => {
-    if (aadhaarOtp.length < 4) {
-      setAadhaarError('Please enter the full OTP.');
-      return;
-    }
-    setIsAadhaarLoading(true);
-    setAadhaarError(null);
-    try {
-      const result = await verifyAndRegisterRequest({
-        path: 'aadhaar',
-        action: 'verify_otp',
-        identifier: aadhaarInput.replace(/\D/g, ''),
-        txnId: aadhaarTxnId,
-        otp: aadhaarOtp,
         demographics: {
           fullName: customName || undefined,
           age: customAge ? Number(customAge) : undefined,
@@ -497,52 +430,26 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
           phone: customPhone || undefined,
         },
       });
-      if (result.status === 'REGISTRATION_REQUIRED') {
-        throw new Error(`Please provide: ${result.requiredFields?.join(', ')}`);
-      }
-      const profile = toPatientProfile(result.patient, { aadhaarNumber: aadhaarInput });
-      onSelectProfile(profile);
-      setCustomName(profile.fullName);
-      setAbhaInput(formatAbhaNumber(profile.abhaId || ''));
-      setAadhaarSuccess('Aadhaar verified — patient registered successfully!');
+      if (result.status !== 'VERIFIED' || !result.patient) throw new Error(result.message || 'No matching demo patient found.');
+      // Any number is accepted — now ask for a 4-digit OTP (any code works in demo mode).
+      setPendingOtp({ path: 'AADHAAR', patient: result.patient, identifier: aadhaarInput });
+      setOtpInput('');
+      setOtpError(null);
     } catch (e: any) {
-      setAadhaarError(e.message || 'OTP verification failed.');
+      setAadhaarError(e.message || 'Aadhaar verification failed.');
     } finally {
       setIsAadhaarLoading(false);
     }
   };
 
   // ─────────────────────────────────────────────
-  // Mobile OTP handlers
+  // Mobile — accept any number, no OTP
   // ─────────────────────────────────────────────
 
-  const handleSendMobileOtp = async () => {
+  const handleMobileContinue = async () => {
     const digits = mobileInput.replace(/\D/g, '').replace(/^91/, '');
     if (digits.length !== 10) {
       setMobileError('Please enter a valid 10-digit Indian mobile number.');
-      return;
-    }
-    setIsMobileLoading(true);
-    setMobileError(null);
-    try {
-      const result = await verifyAndRegisterRequest({
-        path: 'mobile',
-        action: 'send_otp',
-        identifier: mobileInput,
-      });
-      setMobileTxnId(result.txnId || '');
-      setMobileStage('OTP_VERIFY');
-      setMobileInfo('OTP sent to your registered mobile number.');
-    } catch (e: any) {
-      setMobileError(e.message || 'Unable to send OTP. Please retry.');
-    } finally {
-      setIsMobileLoading(false);
-    }
-  };
-
-  const handleVerifyMobileOtp = async () => {
-    if (mobileOtp.length < 4) {
-      setMobileError('Please enter the complete OTP.');
       return;
     }
     setIsMobileLoading(true);
@@ -551,69 +458,66 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
     try {
       const result = await verifyAndRegisterRequest({
         path: 'mobile',
-        action: 'verify_otp',
+        action: 'verify',
         identifier: mobileInput,
-        txnId: mobileTxnId,
-        otp: mobileOtp,
       });
-      if (result.status === 'REGISTRATION_REQUIRED') {
-        // Patient not found — show demographic collection form
-        setMobileStage('DEMOGRAPHICS');
-        setMobileInfo('Mobile verified! Please provide your details to complete registration.');
-        return;
+      if (result.status !== 'VERIFIED' || !result.patient) throw new Error(result.message || 'No matching demo patient found.');
+      // Any number is accepted — now ask for a 4-digit OTP (any code works in demo mode).
+      setPendingOtp({ path: 'MOBILE', patient: result.patient, identifier: mobileInput });
+      setOtpInput('');
+      setOtpError(null);
+    } catch (e: any) {
+      setMobileError(e.message || 'Verification failed. Please retry.');
+    } finally {
+      setIsMobileLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────
+  // Demo OTP verification — any 4-digit code is accepted
+  // ─────────────────────────────────────────────
+
+  const handleOtpVerify = () => {
+    if (!pendingOtp) return;
+    const code = otpInput.trim();
+    if (!/^\d{4}$/.test(code)) {
+      setOtpError('Please enter any 4-digit OTP.');
+      return;
+    }
+    setIsOtpLoading(true);
+    setOtpError(null);
+    // Simulate a short OTP check — demo mode accepts any code.
+    setTimeout(() => {
+      const profile = toPatientProfile(pendingOtp.patient);
+      if (pendingOtp.path === 'ABHA') {
+        onSelectProfile(profile);
+        setAbhaWelcomeName(profile.fullName);
+        setAbhaNotFound(false);
+        setSearchedAbha('');
+      } else if (pendingOtp.path === 'AADHAAR') {
+        onSelectProfile(profile);
+        setCustomName(profile.fullName);
+        setAbhaInput(formatAbhaNumber(profile.abhaId || ''));
+        setAadhaarSuccess(`OTP verified! Welcome ${profile.fullName} — patient verified successfully!`);
+      } else {
+        onSelectProfile(profile);
+        setMobileInfo(`OTP verified! Welcome ${profile.fullName} — proceeding...`);
       }
-      const profile = toPatientProfile(result.patient, { phone: mobileInput });
-      onSelectProfile(profile);
-      setMobileInfo('Patient verified and logged in!');
-      setTimeout(() => onContinue(), 800);
-    } catch (e: any) {
-      setMobileError(e.message || 'Mobile OTP verification failed.');
-    } finally {
-      setIsMobileLoading(false);
-    }
-  };
-
-  const handleMobileRegister = async () => {
-    if (!mobileFirstName.trim()) {
-      setMobileError('First name is required.');
-      return;
-    }
-    if (!mobileAge || Number(mobileAge) <= 0) {
-      setMobileError('Please provide a valid age.');
-      return;
-    }
-    setIsMobileLoading(true);
-    setMobileError(null);
-    try {
-      const result = await verifyAndRegisterRequest({
-        path: 'mobile',
-        action: 'register',
-        identifier: mobileInput,
-        demographics: {
-          firstName: mobileFirstName.trim(),
-          lastName: mobileLastName.trim() || undefined,
-          age: Number(mobileAge),
-          gender: mobileSex,
-          phone: mobileInput,
-        },
-      });
-      const profile = toPatientProfile(result.patient, { phone: mobileInput });
-      onSelectProfile(profile);
-      setMobileInfo('Patient registered successfully!');
-      setTimeout(() => onContinue(), 800);
-    } catch (e: any) {
-      setMobileError(e.message || 'Registration failed. Please retry.');
-    } finally {
-      setIsMobileLoading(false);
-    }
+      setPendingOtp(null);
+      setOtpInput('');
+      setIsOtpLoading(false);
+      if (pendingOtp.path === 'MOBILE') {
+        setTimeout(onContinue, 900);
+      }
+    }, 400);
   };
 
   // ─────────────────────────────────────────────
-  // Walk-in ABHA creation (Aadhaar OTP on-spot)
+  // Walk-in ABHA creation (Aadhaar on-spot)
   // ─────────────────────────────────────────────
 
-  const handleCreateAbhaSendOtp = async () => {
-    if (createAadhaar.length !== 12) {
+  const handleCreateAbhaSubmit = async () => {
+    if (createAadhaar.replace(/\D/g, '').length !== 12) {
       setCreateError('Aadhaar must be exactly 12 digits.');
       return;
     }
@@ -622,32 +526,8 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
     try {
       const result = await verifyAndRegisterRequest({
         path: 'aadhaar',
-        action: 'send_otp',
+        action: 'verify',
         identifier: createAadhaar,
-      });
-      setCreateTxnId(result.txnId || '');
-      setCreateOtpSent(true);
-    } catch (e: any) {
-      setCreateError(e.message || 'Error sending OTP.');
-    } finally {
-      setIsCreating(false);
-    }
-  };
-
-  const handleCreateAbhaVerifyOtp = async () => {
-    if (createOtp.length < 4) {
-      setCreateError('Please enter the full OTP.');
-      return;
-    }
-    setIsCreating(true);
-    setCreateError(null);
-    try {
-      const result = await verifyAndRegisterRequest({
-        path: 'aadhaar',
-        action: 'verify_otp',
-        identifier: createAadhaar,
-        txnId: createTxnId,
-        otp: createOtp,
         demographics: {
           fullName: customName || undefined,
           age: customAge ? Number(customAge) : undefined,
@@ -665,7 +545,7 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
       setAadhaarInput(createAadhaar);
       setCustomName(profile.fullName);
     } catch (e: any) {
-      setCreateError(e.message || 'OTP verification failed.');
+      setCreateError(e.message || 'Registration failed.');
     } finally {
       setIsCreating(false);
     }
@@ -730,19 +610,19 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
     try {
       const result = await verifyAndRegisterRequest({
         path: 'abha',
-        action: 'lookup',
+        action: 'verify',
         identifier: rawAbha,
       });
 
       if (result.status === 'VERIFIED' && result.patient) {
-        const profile = toPatientProfile(result.patient);
-        onSelectProfile(profile);
-        setAbhaWelcomeName(profile.fullName);
-        setAbhaNotFound(false);
-      } else if (result.status === 'NOT_FOUND' || result.status === 'REGISTRATION_REQUIRED') {
-        // Not present in local database
-        setAbhaNotFound(true);
+        // Any valid number/address is accepted — now ask for a 4-digit OTP
+        // (any code works in demo mode).
+        setPendingOtp({ path: 'ABHA', patient: result.patient, identifier: rawAbha });
+        setOtpInput('');
+        setOtpError(null);
         setAbhaWelcomeName(null);
+        setAbhaNotFound(false);
+        setSearchedAbha('');
       } else {
         setAbhaNotFound(true);
         setAbhaWelcomeName(null);
@@ -760,9 +640,10 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
     }
   };
 
-
-
   const handleAbhaSubmit = async () => {
+    if (pendingOtp?.path === 'ABHA') {
+      return;
+    }
     if (patientProfile) {
       onContinue();
     } else {
@@ -773,6 +654,64 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
   // ─────────────────────────────────────────────
   // Render
   // ─────────────────────────────────────────────
+
+  const renderOtpCard = (path: TabId) => {
+    if (pendingOtp?.path !== path) return null;
+    return (
+      <motion.div
+        key="otp"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="p-5 rounded-3xl bg-indigo-50/80 border-2 border-indigo-300 text-slate-900 shadow-sm space-y-4"
+      >
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
+            <Shield className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-sm font-black text-indigo-950">Verify OTP</h4>
+            <p className="text-xs text-indigo-700 mt-0.5 font-mono">
+              OTP sent to {pendingOtp.identifier}
+            </p>
+          </div>
+        </div>
+
+        <Field label="4-Digit OTP" error={otpError}>
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={4}
+            value={otpInput}
+            onChange={(e) => {
+              setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 4));
+              setOtpError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleOtpVerify();
+            }}
+            placeholder="• • • •"
+            className={inputClass + ' font-mono tracking-[0.5em] text-center text-lg'}
+            autoFocus
+          />
+        </Field>
+
+        <button
+          type="button"
+          onClick={handleOtpVerify}
+          disabled={isOtpLoading || otpInput.length !== 4}
+          className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-indigo-600/20 transition"
+        >
+          {isOtpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+          Verify OTP & Continue
+        </button>
+
+        <p className="text-[10px] text-center text-indigo-500 font-mono">
+          Demo mode — any 4-digit OTP is accepted
+        </p>
+      </motion.div>
+    );
+  };
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-6">
@@ -814,7 +753,12 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                setActiveTab(tab.id);
+                setPendingOtp(null);
+                setOtpInput('');
+                setOtpError(null);
+              }}
                 className={`flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-bold transition-all whitespace-nowrap ${
                   isActive
                     ? 'bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
@@ -906,7 +850,12 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
                 </motion.div>
               )}
 
+              {/* ── State: Demo OTP step (any 4-digit code accepted) ── */}
+              {renderOtpCard('ABHA')}
+
               {/* ── State 2: Standard ABHA Input ── */}
+              {pendingOtp?.path !== 'ABHA' && (
+              <React.Fragment>
               <div className="space-y-4">
                 <Field label="ABHA Card Number or Address" required>
                   <div className="relative">
@@ -1000,12 +949,14 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
                         className="px-4 py-3 rounded-2xl bg-white hover:bg-slate-50 text-indigo-700 border-2 border-indigo-200 font-bold text-xs flex items-center justify-center gap-2 shadow-xs transition whitespace-nowrap"
                       >
                         <Phone className="w-4 h-4 text-indigo-600" />
-                        <span>Use Mobile OTP</span>
+                        <span>Use Mobile Number</span>
                       </button>
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
+              </React.Fragment>
+              )}
             </div>
           </motion.div>
         )}
@@ -1109,7 +1060,7 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
               </div>
 
         {/* ════════════════════════════════════════
-            PATH 2: Aadhaar OTP
+            PATH 2: Aadhaar (accept any number)
             ════════════════════════════════════════ */}
         {activeTab === 'AADHAAR' && (
           <motion.div
@@ -1125,8 +1076,8 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
                 <Fingerprint className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-sm font-black text-slate-900">Aadhaar OTP Verification</p>
-                <p className="text-xs text-slate-400 mt-0.5">ABDM enrolment via POST /v3/enrollment/enrol/byAadhaar</p>
+                <p className="text-sm font-black text-slate-900">Aadhaar Verification</p>
+                <p className="text-xs text-slate-400 mt-0.5">Enter a 12-digit Aadhaar number — any number is accepted</p>
               </div>
             </div>
 
@@ -1134,80 +1085,38 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
               <ErrorBanner message={aadhaarError} onDismiss={() => setAadhaarError(null)} />
               <InfoBanner message={aadhaarSuccess} variant="success" />
 
-              {/* Step indicator */}
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${!aadhaarOtpSent ? 'bg-indigo-600 text-white' : 'bg-emerald-500 text-white'}`}>
-                  {!aadhaarOtpSent ? '1' : '✓'}
-                </span>
-                <span className={!aadhaarOtpSent ? 'text-indigo-700' : 'text-slate-400'}>Enter Aadhaar</span>
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${aadhaarOtpSent ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                  2
-                </span>
-                <span className={aadhaarOtpSent ? 'text-indigo-700' : 'text-slate-400'}>Verify OTP</span>
-              </div>
+              {renderOtpCard('AADHAAR')}
 
-              <Field label="12-Digit Aadhaar Number" required>
-                <input
-                  type="text"
-                  maxLength={12}
-                  value={aadhaarInput}
-                  onChange={(e) => setAadhaarInput(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                  placeholder="XXXX XXXX XXXX"
-                  disabled={aadhaarOtpSent}
-                  className={inputClass + ' font-mono tracking-[0.3em]'}
-                />
-              </Field>
+              {pendingOtp?.path !== 'AADHAAR' && (
+              <>
+                <Field label="12-Digit Aadhaar Number" required>
+                  <input
+                    type="text"
+                    maxLength={12}
+                    value={aadhaarInput}
+                    onChange={(e) => setAadhaarInput(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                    placeholder="XXXX XXXX XXXX"
+                    className={inputClass + ' font-mono tracking-[0.3em]'}
+                  />
+                </Field>
 
-              {!aadhaarOtpSent ? (
                 <button
                   type="button"
-                  onClick={handleSendAadhaarOtp}
-                  disabled={isAadhaarLoading || aadhaarInput.length !== 12}
+                  onClick={handleAadhaarSubmit}
+                  disabled={isAadhaarLoading || aadhaarInput.replace(/\D/g, '').length !== 12}
                   className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold text-sm hover:from-amber-600 hover:to-orange-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 transition"
                 >
-                  {isAadhaarLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  Request Aadhaar OTP
+                  {isAadhaarLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Verify Aadhaar & Continue
                 </button>
-              ) : (
-                <div className="space-y-3">
-                  <Field label="6-Digit OTP" required>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={aadhaarOtp}
-                      onChange={(e) => setAadhaarOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      placeholder="● ● ● ● ● ●"
-                      className={inputClass + ' font-mono tracking-[0.5em] text-center text-lg'}
-                    />
-                  </Field>
-
-                  <OtpTimer
-                    onResend={() => {
-                      setAadhaarOtpSent(false);
-                      setAadhaarOtp('');
-                      void handleSendAadhaarOtp();
-                    }}
-                    isResending={isAadhaarLoading}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={handleVerifyAadhaarOtp}
-                    disabled={isAadhaarLoading || aadhaarOtp.length < 4}
-                    className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition"
-                  >
-                    {isAadhaarLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                    Verify OTP & Register
-                  </button>
-                </div>
+              </>
               )}
             </div>
           </motion.div>
         )}
 
         {/* ════════════════════════════════════════
-            PATH 3: Mobile OTP — 3-stage flow
+            PATH 3: Mobile Number (accept any number)
             ════════════════════════════════════════ */}
         {activeTab === 'MOBILE' && (
           <motion.div
@@ -1224,183 +1133,43 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
               </div>
               <div>
                 <p className="text-sm font-black text-slate-900">Mobile Number Login</p>
-                <p className="text-xs text-slate-400 mt-0.5">ABDM PHR — /v3/phr/login/init + /v3/phr/login/verify/otp</p>
+                <p className="text-xs text-slate-400 mt-0.5">Enter a 10-digit mobile number — any number is accepted</p>
               </div>
             </div>
 
             <div className="p-6 max-w-md space-y-4">
               <ErrorBanner message={mobileError} onDismiss={() => setMobileError(null)} />
-              <InfoBanner message={mobileInfo} variant={mobileInfo?.includes('registered') || mobileInfo?.includes('verified') ? 'success' : 'info'} />
+              <InfoBanner message={mobileInfo} variant={mobileInfo?.includes('verified') ? 'success' : 'info'} />
 
-              {/* Stage indicator */}
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-400">
-                {(['PHONE_INPUT', 'OTP_VERIFY', 'DEMOGRAPHICS'] as MobileStage[]).map((stage, idx) => {
-                  const done = (mobileStage === 'OTP_VERIFY' && idx === 0) ||
-                               (mobileStage === 'DEMOGRAPHICS' && idx <= 1);
-                  const active = mobileStage === stage;
-                  return (
-                    <React.Fragment key={stage}>
-                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] ${done ? 'bg-emerald-500 text-white' : active ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
-                        {done ? '✓' : idx + 1}
-                      </span>
-                      <span className={active ? 'text-indigo-700' : done ? 'text-emerald-600' : ''}>
-                        {stage === 'PHONE_INPUT' ? 'Phone' : stage === 'OTP_VERIFY' ? 'OTP' : 'Details'}
-                      </span>
-                      {idx < 2 && <div className="h-px flex-1 bg-slate-200" />}
-                    </React.Fragment>
-                  );
-                })}
-              </div>
+              {renderOtpCard('MOBILE')}
 
-              {/* Stage 1: Phone input */}
-              <AnimatePresence mode="wait">
-                {mobileStage === 'PHONE_INPUT' && (
-                  <motion.div
-                    key="phone"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="space-y-4"
-                  >
-                    <Field label="Mobile Number" required>
-                      <input
-                        type="tel"
-                        value={mobileInput}
-                        onChange={(e) => setMobileInput(e.target.value)}
-                        placeholder="+91 98765 43210"
-                        className={inputClass + ' font-mono'}
-                      />
-                    </Field>
-                    <button
-                      type="button"
-                      onClick={handleSendMobileOtp}
-                      disabled={isMobileLoading || !mobileInput.trim()}
-                      className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition"
-                    >
-                      {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
-                      Send OTP
-                    </button>
-                  </motion.div>
-                )}
+              {pendingOtp?.path !== 'MOBILE' && (
+              <>
+                <Field label="Mobile Number" required>
+                  <input
+                    type="tel"
+                    value={mobileInput}
+                    onChange={(e) => {
+                      setMobileInput(e.target.value);
+                      setMobileError(null);
+                      setMobileInfo(null);
+                    }}
+                    placeholder="+91 98765 43210"
+                    className={inputClass + ' font-mono'}
+                  />
+                </Field>
 
-                {/* Stage 2: OTP verification */}
-                {mobileStage === 'OTP_VERIFY' && (
-                  <motion.div
-                    key="otp"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="space-y-4"
-                  >
-                    <p className="text-xs text-slate-500 font-medium">
-                      OTP sent to <span className="font-bold text-slate-700">{mobileInput}</span>
-                    </p>
-                    <Field label="Enter OTP" required>
-                      <input
-                        type="text"
-                        maxLength={8}
-                        value={mobileOtp}
-                        onChange={(e) => setMobileOtp(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                        placeholder="● ● ● ● ● ●"
-                        className={inputClass + ' font-mono tracking-[0.5em] text-center text-lg'}
-                      />
-                    </Field>
-
-                    <OtpTimer
-                      onResend={() => {
-                        setMobileStage('PHONE_INPUT');
-                        setMobileOtp('');
-                        setMobileInfo(null);
-                      }}
-                      isResending={isMobileLoading}
-                    />
-
-                    <button
-                      type="button"
-                      onClick={handleVerifyMobileOtp}
-                      disabled={isMobileLoading || mobileOtp.length < 4}
-                      className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-indigo-500/20 transition"
-                    >
-                      {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                      Verify & Continue
-                    </button>
-                  </motion.div>
-                )}
-
-                {/* Stage 3: Demographic collection (REGISTRATION_REQUIRED fallback) */}
-                {mobileStage === 'DEMOGRAPHICS' && (
-                  <motion.div
-                    key="demographics"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="space-y-4"
-                  >
-                    <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200 flex items-start gap-2.5">
-                      <User className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                      <p className="text-xs text-amber-800 font-medium">
-                        Mobile verified! This number has no linked ABHA record. Please fill in your details to complete registration.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="First Name" required>
-                        <input
-                          type="text"
-                          value={mobileFirstName}
-                          onChange={(e) => setMobileFirstName(e.target.value)}
-                          placeholder="First"
-                          className={inputClass}
-                        />
-                      </Field>
-                      <Field label="Last Name">
-                        <input
-                          type="text"
-                          value={mobileLastName}
-                          onChange={(e) => setMobileLastName(e.target.value)}
-                          placeholder="Last"
-                          className={inputClass}
-                        />
-                      </Field>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="Age" required>
-                        <input
-                          type="number"
-                          min={1}
-                          max={120}
-                          value={mobileAge}
-                          onChange={(e) => setMobileAge(e.target.value)}
-                          placeholder="e.g. 35"
-                          className={inputClass}
-                        />
-                      </Field>
-                      <Field label="Sex" required>
-                        <select
-                          value={mobileSex}
-                          onChange={(e) => setMobileSex(e.target.value as any)}
-                          className={selectClass}
-                        >
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Other">Other</option>
-                        </select>
-                      </Field>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleMobileRegister}
-                      disabled={isMobileLoading || !mobileFirstName.trim() || !mobileAge}
-                      className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-sm hover:from-indigo-700 hover:to-violet-700 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-indigo-500/20 transition"
-                    >
-                      {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                      Register & Continue
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                <button
+                  type="button"
+                  onClick={handleMobileContinue}
+                  disabled={isMobileLoading || !mobileInput.trim()}
+                  className="w-full py-3 px-6 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 text-white font-bold text-sm hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition"
+                >
+                  {isMobileLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Verify & Continue
+                </button>
+              </>
+              )}
             </div>
           </motion.div>
         )}

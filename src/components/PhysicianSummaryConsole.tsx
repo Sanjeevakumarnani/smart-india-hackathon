@@ -22,7 +22,7 @@ import {
   PatientProfile,
   QueueToken,
 } from '../types';
-import { generateClinicalSummary, pushFhirToAbdm, logPhysicianCorrection } from '../services/geminiService';
+import { generateClinicalSummary, pushFhirToAbdm, logPhysicianCorrection } from '../services/aiClientService';
 import { generateFhirR4Bundle } from '../services/fhirGenerator';
 import { broadcastManager } from '../services/broadcastChannel';
 import { generateClinicalReportPdf } from '../services/pdfService';
@@ -35,6 +35,7 @@ interface PhysicianSummaryConsoleProps {
   onOpenWhatsApp: () => void;
   onOpenQueue: () => void;
   createdToken: QueueToken | null;
+  initialSummary?: ClinicalSummary | null;
 }
 
 export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = ({
@@ -45,6 +46,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
   onOpenWhatsApp,
   onOpenQueue,
   createdToken,
+  initialSummary,
 }) => {
   const [summary, setSummary] = useState<ClinicalSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -67,17 +69,21 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
     async function loadSummary() {
       setIsLoading(true);
       try {
-        const res = await generateClinicalSummary(
-          historyObject,
-          documents,
-          patientProfile,
-          selectedLanguage
-        );
+        // If a persisted summary was supplied (e.g. loaded from an existing
+        // encounter in the Doctor Console), prefer it over a fresh generation.
+        const res = initialSummary
+          ? { summary: initialSummary as ClinicalSummary, source: 'server' }
+          : await generateClinicalSummary(
+              historyObject,
+              documents,
+              patientProfile,
+              selectedLanguage
+            );
         if (isMounted && res.summary) {
           setSummary(res.summary);
           setEditedHpi(res.summary.hpi);
           setEditedPlan(res.summary.provisionalPlan);
-          setSummarySource(res.source || 'gemini');
+          setSummarySource(res.source || 'server');
 
           // Build FHIR Bundle
           const bundle = generateFhirR4Bundle(
@@ -87,6 +93,14 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
             documents
           );
           setFhirBundle(bundle);
+
+          if (createdToken?.encounterId && !initialSummary) {
+            await fetch(`/api/encounters/${createdToken.encounterId}/summary`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(res.summary),
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to generate clinical summary:", err);
@@ -101,7 +115,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
     return () => {
       isMounted = false;
     };
-  }, [historyObject, documents, patientProfile, selectedLanguage]);
+  }, [historyObject, documents, patientProfile, selectedLanguage, createdToken?.encounterId, initialSummary]);
 
   const handleSaveEdits = async () => {
     if (summary) {
@@ -368,7 +382,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
             Synthesizing Clinical Intake, OCR & AYUSH Rogi Pariksha...
           </p>
           <p className="text-xs text-slate-400 mt-1 font-mono">
-            Applying ICD-10 and SNOMED clinical mapping via Gemini server engine
+            Applying ICD-10 and SNOMED clinical mapping via hospital AI server engine
           </p>
         </div>
       ) : summary ? (
@@ -386,7 +400,7 @@ export const PhysicianSummaryConsole: React.FC<PhysicianSummaryConsoleProps> = (
                   {summarySource === 'gemini' || summarySource === 'server' ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-mono font-bold">
                       <Sparkles className="w-3 h-3 text-emerald-400" />
-                      <span>AI (Gemini 2.5)</span>
+                      <span>Hospital AI (Groq)</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-bold">

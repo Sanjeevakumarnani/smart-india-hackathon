@@ -1,5 +1,6 @@
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
+import { DEMO_PATIENTS } from './data/demoPatients';
 
 dotenv.config();
 
@@ -59,7 +60,7 @@ class InMemoryDbStore {
     { id: 'cmp-09', complaint_key: 'other_disease', display_name_en: 'Other Disease / Condition', display_name_hi: 'अन्य बीमारी / समस्या', display_name_te: 'ఇతర వ్యాధి / సమస్య', display_name_ta: 'மற்ற நோய் / பிரச்சனை', display_name_kn: 'ಇತರ ರೋಗ / ಸಮಸ್ಯೆ', display_name_ml: 'മറ്റ് രോഗം / പ്രശ്നം', display_name_mr: 'इतर आजार / समस्या', icon: 'HelpCircle', color_class: 'text-indigo-600 bg-indigo-50 border-indigo-200', opd_type: 'both', is_red_flag_trigger: 0, sort_order: 9, is_active: 1 },
   ];
 
-  patients: any[] = [];
+  patients: any[] = DEMO_PATIENTS.map((patient) => ({ ...patient }));
   encounters: any[] = [];
   queueTokens: any[] = [];
   vitals: any[] = [];

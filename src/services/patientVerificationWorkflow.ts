@@ -6,31 +6,29 @@
  * registration workflow.  It is intentionally framework-agnostic — call it
  * from any Express handler, a test suite, or a CLI script.
  *
- * ────────────────────────────────────────────────────────────────────────────
- * PATH 1 — ABHA ID or QR Code Scan
- *   path: 'abha', action: 'lookup'
+* ────────────────────────────────────────────────────────────────────────────
+ * PATH 1 — ABHA ID or QR Code scan
+ *   path: 'abha', action: 'lookup' / 'verify'
  *   - Accepts a 14-digit ABHA number, ABHA address (name@abdm), or a JSON
  *     payload decoded from a physical ABHA card QR code.
  *   - Performs an internal DB lookup first.
  *   - If found: returns existing patient record.
- *   - If not found: auto-registers from QR demographic data (if available).
- *   - If QR data absent: returns REGISTRATION_REQUIRED so the client can
- *     prompt for missing fields.
+ *   - If not found: auto-registers from QR demographic data (if available) or
+ *     as a walk-in patient with a generated display name.
  *
- * PATH 2 — Aadhaar OTP (ABDM two-step)
- *   path: 'aadhaar', action: 'send_otp'   → returns txnId
- *   path: 'aadhaar', action: 'verify_otp' → verifies & returns patient
- *   - Both the Aadhaar number AND the OTP are RSA-encrypted before transmission.
- *   - After verification, performs DB lookup by Aadhaar.
- *   - If not found: creates new patient from ABDM-returned demographics.
+ * PATH 2 — Aadhaar
+ *   path: 'aadhaar', action: 'verify'
+ *   - Accepts any valid 12-digit Aadhaar number.
  *
- * PATH 3 — Mobile Number + OTP (ABDM PHR)
- *   path: 'mobile', action: 'send_otp'   → returns txnId
- *   path: 'mobile', action: 'verify_otp' → verifies mobile; if patient not
- *                                           found returns REGISTRATION_REQUIRED
- *                                           with requiredFields list.
- *   path: 'mobile', action: 'register'   → creates patient from submitted
- *                                           demographics + verified mobile.
+ * PATH 3 — Mobile Number
+ *   path: 'mobile', action: 'verify' / 'register'
+ *   - Accepts any valid 10-digit Indian mobile number.
+ *
+ * Demo mode (ABDM not configured): the OTP verification system is REMOVED for
+ * all paths — any valid number/identifier is accepted immediately. Known demo
+ * patients are matched against their seeded profile; unknown numbers are
+ * auto-registered as walk-in patients so the kiosk flow always proceeds.
+ * When ABDM IS configured, the real ABDM OTP gateway flows apply unchanged.
  * ────────────────────────────────────────────────────────────────────────────
  */
 
@@ -61,8 +59,9 @@ export class AbdmApiError extends Error {
 }
 
 /**
- * Thrown when an OTP-related request fails because the transaction has expired.
- * Maps to HTTP 410 Gone at the route layer.
+ * Structured error thrown when an OTP-related request fails because the transaction has expired.
+ * Maps to HTTP 410 Gone at the route layer. (ABDM gateway flows only — the demo
+ * OTP system has been removed.)
  */
 export class OtpExpiredError extends Error {
   constructor(message = 'OTP has expired. Please request a new one.') {
@@ -79,7 +78,7 @@ export const verifyAndRegisterSchema = z.object({
   /** Which authentication path to use. */
   path: z.enum(['abha', 'aadhaar', 'mobile']),
   /** The sub-action within the selected path. */
-  action: z.enum(['lookup', 'send_otp', 'verify_otp', 'register']).default('lookup'),
+  action: z.enum(['lookup', 'verify', 'send_otp', 'verify_otp', 'register']).default('lookup'),
   /** The primary identifier — ABHA ID/address, Aadhaar number, or mobile number. */
   identifier: z.string().trim().min(1),
   /** Transaction ID returned by the ABDM OTP-send step. */
@@ -259,7 +258,9 @@ async function createFromProfile(
     );
   }
 
-  return patientRepository.createNewPatientRecord({
+  // Idempotent create-or-update so re-registration never duplicates a patient
+  // in the in-memory fallback (MySQL offline) store.
+  return patientRepository.upsertPatient({
     abhaId: profile.abhaId || profile.abha_id || profile.healthIdNumber || (source === 'abha' && !identifier.includes('@') ? identifier : null),
     abhaAddress: profile.abhaAddress || profile.phr || profile.healthId || (source === 'abha' && identifier.includes('@') ? identifier : null),
     aadhaarNumber: profile.aadhaarNumber || profile.aadhaar_number || (source === 'aadhaar' ? identifier : null),
@@ -270,6 +271,99 @@ async function createFromProfile(
     phone: demographics?.phone ?? profile.mobile ?? profile.phone ?? (source === 'mobile' ? identifier : null),
     photoUrl: demographics?.photoUrl ?? profile.photo ?? profile.photoUrl ?? profile.profilePhoto ?? null,
   });
+}
+
+// ─────────────────────────────────────────────
+// No-OTP acceptance helpers (demo mode)
+// ─────────────────────────────────────────────
+
+/** Generates a display name for a registration that supplied no demographics. */
+function walkInName(source: VerifyAndRegisterInput['path'], identifier: string): string {
+  const last4 = identifier.replace(/\D/g, '').slice(-4);
+  if (source === 'mobile') return `Walk-in ${identifier}`;
+  if (source === 'abha' && identifier.includes('@')) return `Walk-in ${identifier}`;
+  return `Walk-in Patient ·${last4}`;
+}
+
+/**
+ * Creates (or idempotently updates) a patient record from a raw identifier,
+ * merging QR/ABDM profile data and manual demographics. Unlike
+ * `createFromProfile`, it never throws for a missing name — any accepted number
+ * maps to a walk-in patient so the kiosk flow can always proceed.
+ */
+async function createWalkIn(
+  source: VerifyAndRegisterInput['path'],
+  identifier: string,
+  profileData: Record<string, any>,
+  demographics?: VerifyAndRegisterInput['demographics']
+): Promise<PatientRecord> {
+  const name =
+    nameFromDemographics(demographics) ||
+    profileData.fullName ||
+    profileData.name ||
+    profileData.patientName ||
+    walkInName(source, identifier);
+
+  return patientRepository.upsertPatient({
+    abhaId: profileData.abhaId || profileData.abha_id || profileData.healthIdNumber || (source === 'abha' && !identifier.includes('@') ? identifier : null),
+    abhaAddress: profileData.abhaAddress || profileData.phr || profileData.healthId || (source === 'abha' && identifier.includes('@') ? identifier : null),
+    aadhaarNumber: profileData.aadhaarNumber || profileData.aadhaar_number || (source === 'aadhaar' ? identifier : null),
+    fullName: name,
+    age: demographics?.age ?? profileData.age ?? null,
+    gender: demographics?.gender ?? profileData.gender ?? 'Prefer not to say',
+    dob: demographics?.dob ?? profileData.dob ?? profileData.dateOfBirth ?? null,
+    phone: demographics?.phone ?? profileData.mobile ?? profileData.phone ?? (source === 'mobile' ? identifier : null),
+    photoUrl: demographics?.photoUrl ?? profileData.photo ?? profileData.photoUrl ?? profileData.profilePhoto ?? null,
+  });
+}
+
+/**
+ * Demo mode: OTP-free acceptance of ANY valid identifier.
+ * Known demo patients are matched against the local store; unknown numbers are
+ * auto-registered as walk-in patients. The deprecated `send_otp`/`verify_otp`
+ * actions are treated identically — no OTP is ever issued or required.
+ */
+async function acceptAnyNumber(input: VerifyAndRegisterInput) {
+  let identifier: string;
+  let existing: PatientRecord | null = null;
+  let profileData: Record<string, any> = {};
+
+  if (input.path === 'abha') {
+    let qrData: Record<string, any> | undefined;
+    try {
+      const parsed = JSON.parse(input.identifier);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        qrData = parsed;
+      }
+    } catch {
+      /* plain ABHA ID or address */
+    }
+    const payloadObject = qrData || (typeof input.demographicPayload === 'object' ? input.demographicPayload : undefined);
+    profileData = payloadObject || {};
+
+    const rawId =
+      payloadObject?.abhaId ??
+      payloadObject?.hidn ??
+      payloadObject?.healthIdNumber ??
+      payloadObject?.id ??
+      payloadObject?.abhaAddress ??
+      payloadObject?.phr ??
+      input.identifier;
+
+    identifier = normaliseAbhaIdentifier(rawId);
+    existing = await patientRepository.findPatientByAbha(identifier);
+  } else if (input.path === 'aadhaar') {
+    identifier = normaliseAadhaar(input.identifier);
+    existing = await patientRepository.findPatientByAadhaar(identifier);
+  } else {
+    identifier = normaliseMobile(input.identifier);
+    existing = await patientRepository.findPatientByMobile(identifier);
+  }
+
+  if (existing) return profileResponse(existing, input.path);
+
+  const patient = await createWalkIn(input.path, identifier, profileData, input.demographics);
+  return profileResponse(patient, input.path);
 }
 
 // ─────────────────────────────────────────────
@@ -284,11 +378,21 @@ async function createFromProfile(
  *
  * @returns One of:
  *   - `{ status: 'VERIFIED', patientId, patient }` — patient found or created
- *   - `{ status: 'OTP_SENT', txnId, expiresIn }` — OTP was dispatched
- *   - `{ status: 'REGISTRATION_REQUIRED', requiredFields, ... }` — caller must
+ *   - `{ status: 'OTP_SENT', txnId, expiresIn }` — OTP dispatched (ABDM gateway only)
+ *   - `{ status: 'NOT_FOUND' | 'REGISTRATION_REQUIRED', ... }` — caller must
  *     collect missing demographics and resubmit
  */
 export async function verifyAndRegister(input: VerifyAndRegisterInput) {
+  // Demo mode (ABDM gateway not configured): the OTP verification system is
+  // removed for ALL identity paths — ANY valid identifier is accepted
+  // immediately. Known demo patients are matched against their seeded profile;
+  // unknown numbers are auto-registered as walk-in patients so the kiosk flow
+  // always proceeds. `send_otp` / `verify_otp` are treated identically to
+  // `verify` and never require an OTP.
+  if (!isAbdmConfigured()) {
+    return acceptAnyNumber(input);
+  }
+
   // ──────────────────────────────────────────
   // PATH 1: ABHA ID or QR Code scan
   // ──────────────────────────────────────────
@@ -321,7 +425,7 @@ export async function verifyAndRegister(input: VerifyAndRegisterInput) {
 
     const identifier = normaliseAbhaIdentifier(rawId);
 
-    // 1a. Internal DB lookup — return existing patient immediately if found.
+    // 1a. Internal DB lookup.
     const existing = await patientRepository.findPatientByAbha(identifier);
     if (existing) return profileResponse(existing, input.path);
 
@@ -337,28 +441,19 @@ export async function verifyAndRegister(input: VerifyAndRegisterInput) {
       };
     }
 
-    // Demographic data is available from QR or manual demographics payload — auto-register.
+    // Demographic data is available from QR or manual demographics payload.
     const patient = await createFromProfile(input.path, payloadObject || {}, identifier, input.demographics);
     return profileResponse(patient, input.path);
   }
 
   // ──────────────────────────────────────────
-  // PATH 2: Aadhaar OTP
+  // PATH 2: Aadhaar OTP (ABDM two-step)
   // ──────────────────────────────────────────
   if (input.path === 'aadhaar') {
     const aadhaarNumber = normaliseAadhaar(input.identifier);
 
     // STEP A: Send OTP
     if (input.action === 'send_otp') {
-      if (!isAbdmConfigured()) {
-        return {
-          status: 'OTP_SENT' as const,
-          source: input.path,
-          txnId: `SIM-TXN-AADHAAR-${Date.now()}`,
-          expiresIn: 300,
-        };
-      }
-
       const encryptedAadhaar = await encryptForAbdm(aadhaarNumber);
       const payload = await abdmPost('/v3/enrollment/request/otp', {
         aadhaar: encryptedAadhaar,
@@ -380,24 +475,6 @@ export async function verifyAndRegister(input: VerifyAndRegisterInput) {
     }
     if (!input.txnId || !input.otp) {
       throw new Error('Both txnId and otp are required for Aadhaar verification');
-    }
-
-    if (!isAbdmConfigured()) {
-      // Internal DB lookup first by Aadhaar
-      const existing = await patientRepository.findPatientByAadhaar(aadhaarNumber);
-      if (existing) return profileResponse(existing, input.path);
-
-      // Auto-register simulated patient profile
-      const name = nameFromDemographics(input.demographics) || 'Aadhaar Verified Patient';
-      const simProfile = {
-        name,
-        gender: input.demographics?.gender || 'Other',
-        dob: input.demographics?.dob || '1995-01-01',
-        aadhaarNumber,
-        mobile: input.demographics?.phone || '',
-      };
-      const patient = await createFromProfile(input.path, simProfile, aadhaarNumber, input.demographics);
-      return profileResponse(patient, input.path);
     }
 
     // SECURITY: Both Aadhaar AND OTP must be RSA-encrypted before transmission.
@@ -436,21 +513,12 @@ export async function verifyAndRegister(input: VerifyAndRegisterInput) {
   }
 
   // ──────────────────────────────────────────
-  // PATH 3: Mobile Number + OTP
+  // PATH 3: Mobile Number + OTP (ABDM PHR)
   // ──────────────────────────────────────────
   const mobile = normaliseMobile(input.identifier);
 
   // STEP A: Send OTP
   if (input.action === 'send_otp') {
-    if (!isAbdmConfigured()) {
-      return {
-        status: 'OTP_SENT' as const,
-        source: input.path,
-        txnId: `SIM-TXN-MOBILE-${Date.now()}`,
-        expiresIn: 300,
-      };
-    }
-
     const encryptedMobile = await encryptForAbdm(mobile);
     const payload = await abdmPost('/v3/phr/login/init', {
       mobile: encryptedMobile,
@@ -475,23 +543,20 @@ export async function verifyAndRegister(input: VerifyAndRegisterInput) {
       throw new Error('Both txnId and otp are required for mobile verification');
     }
 
-    if (isAbdmConfigured()) {
-      const encryptedOtp = await encryptForAbdm(input.otp);
-      await abdmPost('/v3/phr/login/verify/otp', {
-        txnId: input.txnId,
-        otp: encryptedOtp,
-      });
-    }
+    const encryptedOtp = await encryptForAbdm(input.otp);
+    await abdmPost('/v3/phr/login/verify/otp', {
+      txnId: input.txnId,
+      otp: encryptedOtp,
+    });
 
     // Mobile verified — check local DB.
     const existing = await patientRepository.findPatientByMobile(mobile);
     if (existing) return profileResponse(existing, input.path);
 
-    // Patient not found — prompt client to collect demographic details.
     return {
-      status: 'REGISTRATION_REQUIRED' as const,
+      status: 'NOT_FOUND' as const,
       source: input.path,
-      requiredFields: ['firstName', 'lastName', 'age', 'gender'],
+      message: 'No patient record found for this mobile number.',
       verifiedMobile: mobile,
     };
   }
@@ -507,6 +572,7 @@ export async function verifyAndRegister(input: VerifyAndRegisterInput) {
         verifiedMobile: mobile,
       };
     }
+
     const patient = await createFromProfile(input.path, {}, mobile, {
       ...input.demographics,
       phone: mobile,

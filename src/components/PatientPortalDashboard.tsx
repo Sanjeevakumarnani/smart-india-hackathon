@@ -7,34 +7,65 @@ export const PatientPortalDashboard: React.FC<{
   patient: PatientProfile | null;
   onLogout: () => void;
 }> = ({ patient, onLogout }) => {
-  // Load real documents digitized during kiosk sessions
-  const [documents] = React.useState<DigitizedDocument[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('medikiosk_fhir_archive');
-        if (saved) {
-          const bundles = JSON.parse(saved);
-          return bundles.map((b: any, idx: number) => ({
-            id: b.id || `DOC-${idx + 1}`,
-            title: b.title || b.entry?.[0]?.resource?.title || 'OPD Clinical Encounter Report',
-            date: b.date?.split('T')[0] || b.entry?.[0]?.resource?.date?.split('T')[0] || new Date().toISOString().split('T')[0],
-            documentType: ((b.documentType || 'discharge_summary') as 'discharge_summary' | 'lab_report' | 'prescription' | 'imaging_report'),
-            hospitalOrClinic: b.hospitalOrClinic || 'AIIMS / District OPD Centre',
-            doctorName: b.doctorName || 'Attending Physician',
-            diagnoses: b.diagnoses || ['Consultation Summary'],
-            medications: b.medications || [],
-            labValues: b.labValues || [],
-            rawOcrText: b.rawOcrText || 'Digital Health Record synchronized with ABDM Health Locker.',
-            abnormalCount: 0,
-            isSample: false,
-          }));
-        }
-      } catch (e) {
-        console.warn('Could not read archive:', e);
-      }
+  const [documents, setDocuments] = React.useState<DigitizedDocument[]>([]);
+  const [recordCounts, setRecordCounts] = React.useState({ visits: 0, documents: documents.length, prescriptions: 0 });
+  const [isLoadingRecords, setIsLoadingRecords] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!patient?.id) return;
+    let active = true;
+    setIsLoadingRecords(true);
+    const portalToken = sessionStorage.getItem('medikiosk_patient_portal_token');
+    if (!portalToken) {
+      setIsLoadingRecords(false);
+      return;
     }
-    return [];
-  });
+    fetch(`/api/patients/${encodeURIComponent(patient.id)}/records`, {
+      headers: { Authorization: `Bearer ${portalToken}` },
+    })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error('Failed to load records')))
+      .then((data) => {
+        if (!active) return;
+        const serverDocuments = Array.isArray(data.documents) ? data.documents : [];
+        const summaries = Array.isArray(data.summaries) ? data.summaries : [];
+        setRecordCounts(data.counts || { visits: 0, documents: serverDocuments.length, prescriptions: 0 });
+        setDocuments([
+          ...summaries.map((summary: any, index: number) => ({
+            id: summary.id || `SUM-${index + 1}`,
+            title: 'Clinical visit summary',
+            date: summary.updated_at?.split('T')[0] || summary.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+            documentType: 'discharge_summary' as const,
+            hospitalOrClinic: 'MediKiosk OPD',
+            doctorName: 'Attending Physician',
+            diagnoses: summary.differentialDiagnosis || [],
+            medications: [],
+            labValues: [],
+            rawOcrText: summary.summary?.hpi || summary.hpi || summary.provisional_plan || '',
+            abnormalCount: Array.isArray(summary.redFlags) ? summary.redFlags.length : 0,
+            isSample: false,
+          })),
+          ...serverDocuments.map((document: any, index: number) => ({
+            id: document.id || `DOC-${index + 1}`,
+            title: document.title || 'OPD Clinical Encounter Report',
+            date: document.document_date || document.created_at?.split('T')[0] || new Date().toISOString().split('T')[0],
+            documentType: document.document_type || 'discharge_summary',
+            hospitalOrClinic: document.hospital_or_clinic || 'OPD Centre',
+            doctorName: document.doctor_name || 'Attending Physician',
+            diagnoses: document.diagnoses || [],
+            medications: document.medications || [],
+            labValues: document.labValues || [],
+            rawOcrText: document.raw_ocr_text || '',
+            abnormalCount: document.abnormalCount || 0,
+            isSample: false,
+          })),
+        ]);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setIsLoadingRecords(false);
+      });
+    return () => { active = false; };
+  }, [patient?.id]);
 
   const handleDownloadPdf = (docItem: DigitizedDocument) => {
     if (!patient) return;
@@ -161,15 +192,15 @@ export const PatientPortalDashboard: React.FC<{
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-600">Total Visits</span>
-                <span className="text-sm font-black text-slate-900 font-mono">14</span>
+                <span className="text-sm font-black text-slate-900 font-mono">{recordCounts.visits}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-600">Digitized Records</span>
-                <span className="text-sm font-black text-slate-900 font-mono">8</span>
+                <span className="text-sm font-black text-slate-900 font-mono">{recordCounts.documents}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-600">Active Prescriptions</span>
-                <span className="text-sm font-black text-slate-900 font-mono">3</span>
+                <span className="text-sm font-black text-slate-900 font-mono">{recordCounts.prescriptions}</span>
               </div>
             </div>
           </div>
@@ -224,7 +255,9 @@ export const PatientPortalDashboard: React.FC<{
               </span>
             </div>
 
-            {documents.length === 0 ? (
+            {isLoadingRecords ? (
+              <div className="py-12 text-center text-slate-500 font-mono text-xs">Loading your records...</div>
+            ) : documents.length === 0 ? (
               <div className="py-12 text-center text-slate-500 font-mono text-xs flex flex-col items-center gap-2">
                 <Inbox className="w-8 h-8 text-slate-400 mb-1" />
                 <p className="text-slate-900 font-bold text-sm">No Digitized Records Yet</p>

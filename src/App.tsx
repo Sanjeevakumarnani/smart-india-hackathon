@@ -35,10 +35,19 @@ import { speechService } from './services/speechService';
 import { PatientHeader } from './components/PatientHeader';
 import { FloatingCurrentToken } from './components/FloatingCurrentToken';
 import { StaffLoginScreen, AuthUser } from './components/StaffLoginScreen';
+import { HospitalLoginScreen } from './components/HospitalLoginScreen';
 import { DoctorConsolePage } from './components/DoctorConsolePage';
 import { AdminPanelPage } from './components/AdminPanelPage';
 
 export function App() {
+  // Hospital Admin Kiosk Gate: locked until an admin logs in (persists via localStorage)
+  const [kioskUnlocked, setKioskUnlocked] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('medikiosk_kiosk_unlocked') === '1';
+    }
+    return false;
+  });
+
   // Role & View Management (Patient Kiosk vs Staff Login vs Doctor vs Admin)
   const [activeRoleView, setActiveRoleView] = useState<'patient' | 'staff_login' | 'doctor' | 'admin'>('patient');
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => {
@@ -181,35 +190,9 @@ export function App() {
 
       const sToken = serverResponse.token || serverResponse;
 
-      // 2. Save encounter to localStorage 'medikiosk_fhir_archive' for Patient Portal continuity
-      try {
-        const existingArchive = JSON.parse(localStorage.getItem('medikiosk_fhir_archive') || '[]');
-        const archiveItem = {
-          id: sToken.id || sToken.tokenId || `ENC-${Date.now()}`,
-          date: new Date().toISOString(),
-          title: `${historyObject.chiefComplaint || 'OPD Consultation'} Summary`,
-          documentType: 'discharge_summary',
-          hospitalOrClinic: 'AIIMS / District OPD Centre',
-          doctorName: sToken.doctorName || 'Attending Physician',
-          diagnoses: [historyObject.chiefComplaint || 'Clinical Consultation'],
-          abhaId: tokenPayload.abhaId || 'ABHA-DEMO-001',
-          patientName: tokenPayload.patientName || 'Patient',
-          department: opdType === 'ayurveda' ? 'Ayurveda / AYUSH' : 'General Medicine OPD',
-          status: 'COMPLETED',
-          vitals: patientProfile?.vitals,
-          socrates: historyObject.socrates,
-          ayush: historyObject.ayush,
-          documents: documents || [],
-          redFlags: historyObject.redFlags || [],
-          rawOcrText: 'Digital Health Record synchronized with ABDM Health Locker.',
-        };
-        localStorage.setItem('medikiosk_fhir_archive', JSON.stringify([archiveItem, ...existingArchive]));
-      } catch (e) {
-        console.warn('Could not save to fhir archive:', e);
-      }
-
       const newToken: QueueToken = {
         tokenId: sToken.id || sToken.tokenId || `TOKEN-LIVE-${Date.now().toString().slice(-4)}`,
+        encounterId: sToken.encounterId,
         tokenNumber: sToken.tokenNumber || (100 + queue.length + 1),
         abhaId: tokenPayload.abhaId,
         patientName: tokenPayload.patientName,
@@ -286,6 +269,11 @@ export function App() {
     setCreatedToken(null);
   };
 
+  const handleLockKiosk = () => {
+    localStorage.removeItem('medikiosk_kiosk_unlocked');
+    setKioskUnlocked(false);
+  };
+
   const handleComplaintSelection = (id: string, title: string) => {
     setSelectedComplaintId(id);
     setHistoryObject((prev) => ({
@@ -299,6 +287,29 @@ export function App() {
   };
 
   const hasRedFlag = Boolean(historyObject.redFlags && historyObject.redFlags.length > 0);
+
+  const navigateToStep = (step: KioskStep) => {
+    const blockedMessages: Partial<Record<KioskStep, string>> = {
+      VITALS: !patientProfile ? 'Verify patient identity before entering vitals.' : undefined,
+      COMPLAINT_SELECT: !patientProfile ? 'Verify patient identity before selecting a complaint.' : undefined,
+      CONVERSATION: !selectedComplaintId ? 'Select a chief complaint before starting the symptom interview.' : undefined,
+      FAMILY_HISTORY: !historyObject.chiefComplaint ? 'Complete the chief complaint step first.' : undefined,
+      AYUSH_PARIKSHA: opdType !== 'ayurveda' ? 'AYUSH assessment is available only for Ayurveda OPD.' : undefined,
+      DOC_SCAN: !historyObject.chiefComplaint ? 'Complete the clinical intake before uploading documents.' : undefined,
+      PHYSICIAN_CONSOLE: !createdToken ? 'Complete the patient encounter before opening the summary.' : undefined,
+    };
+    const message = blockedMessages[step];
+    if (message) {
+      setKioskBanner({ type: 'error', message });
+      return;
+    }
+    setCurrentStep(step);
+  };
+
+  // Hospital Admin Gate: kiosk stays locked until an admin unlocks it
+  if (!kioskUnlocked) {
+    return <HospitalLoginScreen onUnlock={() => setKioskUnlocked(true)} />;
+  }
 
   // Role Gate: Hospital Staff & Doctor Login
   if (activeRoleView === 'staff_login') {
@@ -380,9 +391,10 @@ export function App() {
         isAudioMuted={!isAudioNarration}
         onToggleAudio={() => setIsAudioNarration(!isAudioNarration)}
         onOpenStaffLogin={() => setActiveRoleView('staff_login')}
+        onLockKiosk={handleLockKiosk}
         language={selectedLanguage}
         opdType={opdType}
-        onNavigateStep={(step) => setCurrentStep(step)}
+            onNavigateStep={navigateToStep}
         isHighContrast={isHighContrast}
         onToggleHighContrast={() => setIsHighContrast(!isHighContrast)}
         isLargeFont={isLargeFont}
@@ -443,7 +455,7 @@ export function App() {
             onSelectProfile={(p) => {
               setPatientProfile(p);
             }}
-            onContinue={() => setCurrentStep('VITALS')}
+            onContinue={() => navigateToStep('VITALS')}
             onBack={() => setCurrentStep('CONSENT')}
             selectedLanguage={selectedLanguage}
           />
@@ -592,7 +604,11 @@ export function App() {
         {currentStep === 'PATIENT_PORTAL_DASHBOARD' && (
           <PatientPortalDashboard
             patient={patientProfile}
-            onLogout={() => setCurrentStep('LANGUAGE')}
+            onLogout={() => {
+              sessionStorage.removeItem('medikiosk_patient_portal_token');
+              setPatientProfile(null);
+              setCurrentStep('LANGUAGE');
+            }}
           />
         )}
       </main>
@@ -643,7 +659,7 @@ export function App() {
       <FloatingCurrentToken />
 
       {/* Floating Action Button & AI Kiosk Chat Assistant */}
-      <ChatWidget onNavigateToStep={(step) => setCurrentStep(step)} />
+      <ChatWidget onNavigateToStep={navigateToStep} />
     </div>
   );
 }

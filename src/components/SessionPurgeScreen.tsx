@@ -87,6 +87,8 @@ const PURGE_STEPS: PurgeStep[] = [
 export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdToken, onProceed, selectedLanguage }) => {
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
   const [countdown, setCountdown] = useState(8);
+  const [purgeMode, setPurgeMode] = useState<string | null>(null);
+  const [purgeIntegration, setPurgeIntegration] = useState<string | null>(null);
   const allDone = completedSteps.length === PURGE_STEPS.length;
 
   const dpdpSubtitles: Record<LanguageCode, string> = {
@@ -102,7 +104,16 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
   useEffect(() => {
     // Invoke backend purge endpoint for GDPR/DPDP data hygiene
     if (createdToken?.tokenId) {
-      fetch(`/api/session/purge/${createdToken.tokenId}`, { method: 'POST' }).catch(() => {});
+      const purgeTarget = (createdToken as any).encounterId || createdToken.tokenId;
+      fetch(`/api/session/purge/${encodeURIComponent(purgeTarget)}`, { method: 'POST' })
+        .then((res) => res.json().catch(() => ({})))
+        .then((data) => {
+          if (data && data.success) {
+            setPurgeMode(data.mode || 'real');
+            setPurgeIntegration(data.integration || (data.mode === 'real' ? 'real' : 'simulated'));
+          }
+        })
+        .catch(() => {});
     }
 
     PURGE_STEPS.forEach((step, idx) => {
@@ -297,6 +308,11 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
             <div className="font-mono text-[11px] tracking-widest my-1">||| | |||| || ||| |||| |</div>
             <p className="text-[8px] uppercase">Token ID: {createdToken.tokenId || (createdToken as any).id}</p>
             <p className="text-[8px] mt-2">Data purged under DPDP Act 2023</p>
+            {purgeIntegration && (
+              <p className="text-[8px] mt-1 uppercase tracking-wider">
+                Purge status: {purgeIntegration} {purgeMode ? `(${purgeMode})` : ''}
+              </p>
+            )}
           </div>
         </div>
       )}

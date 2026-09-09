@@ -169,7 +169,7 @@ export async function decodeAbhaQr(imageBase64: string): Promise<AbhaQrPayload |
     const parsed = JSON.parse(rawText);
     return extractPayload(parsed);
   } catch (zxingErr: any) {
-    // If zxing or canvas is not available, return null to let Gemini Vision OCR or fallback take over
+    // If zxing or canvas is not available, return null to let the hospital AI vision OCR or fallback take over
     return null;
   }
 }

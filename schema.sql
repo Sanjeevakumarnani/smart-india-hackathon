@@ -244,6 +244,7 @@ CREATE TABLE clinical_summaries (
   encounter_id VARCHAR(36) NOT NULL,
   hpi LONGTEXT,
   hpi_hindi LONGTEXT,
+  summary_json JSON,
   differential_diagnosis JSON,
   provisional_plan TEXT,
   red_flags JSON,
@@ -253,7 +254,8 @@ CREATE TABLE clinical_summaries (
   abdm_transaction_id VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_summaries_encounter FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE
+  CONSTRAINT fk_summaries_encounter FOREIGN KEY (encounter_id) REFERENCES encounters(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_summaries_encounter (encounter_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ----------------------------------------------------------
@@ -505,5 +507,3 @@ CREATE TABLE consent_ledger (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
-
-

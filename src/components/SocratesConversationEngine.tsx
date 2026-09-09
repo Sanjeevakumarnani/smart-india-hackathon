@@ -374,7 +374,7 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
     [complaintId, historyObject, isAudioNarration, keywords, onUpdateHistory, redFlags, selectedLanguage]
   );
 
-  // Toggle voice recognition
+  // Toggle voice recognition (Sarvam STT primary, Bhashini/browser fallback)
   const toggleVoice = () => {
     if (isListening) {
       if (recognitionRef.current) {
@@ -383,9 +383,10 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
       setIsListening(false);
     } else {
       setIsListening(true);
-      const rec = speechService.createRecognition(
+      const rec = speechService.recordAndTranscribe(
         selectedLanguage,
-        (spoken) => {
+        (spoken, source) => {
+          setIsListening(false);
           if (spoken && spoken.trim()) {
             const combined = transcript
               ? `${transcript} ${spoken}`
@@ -398,12 +399,13 @@ export const SocratesConversationEngine: React.FC<SocratesConversationEngineProp
         (err) => {
           console.warn('STT Error:', err);
           setIsListening(false);
-        },
-        () => {
-          setIsListening(false);
         }
       );
       recognitionRef.current = rec;
+      if (!rec.isSupported) {
+        setIsListening(false);
+        return;
+      }
       rec?.start();
     }
   };

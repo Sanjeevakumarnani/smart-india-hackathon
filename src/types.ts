@@ -244,6 +244,7 @@ export interface PhysicianCorrection {
 
 export interface QueueToken {
   tokenId: string;
+  encounterId?: string;
   tokenNumber: number;
   abhaId: string;
   patientName: string;

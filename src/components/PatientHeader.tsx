@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Volume2, VolumeX, RotateCcw, Clock, Shield, Eye, Type, Hand } from 'lucide-react';
+import { Volume2, VolumeX, RotateCcw, Clock, Shield, Eye, Type, Hand, LockKeyhole } from 'lucide-react';
 import { KioskStep, LanguageCode, OpdType } from '../types';
 import { ProgressStepper } from './ProgressStepper';
 
@@ -11,6 +11,7 @@ interface PatientHeaderProps {
   isAudioMuted: boolean;
   onToggleAudio: () => void;
   onOpenStaffLogin: () => void;
+  onLockKiosk: () => void;
   language?: LanguageCode;
   opdType: OpdType;
   onNavigateStep: (step: KioskStep) => void;
@@ -30,6 +31,7 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
   isAudioMuted,
   onToggleAudio,
   onOpenStaffLogin,
+  onLockKiosk,
   language,
   opdType,
   onNavigateStep,
@@ -215,6 +217,15 @@ export const PatientHeader: React.FC<PatientHeaderProps> = ({
             title="Hospital Staff & Doctor Login"
           >
             <Shield className="w-4 h-4" />
+          </button>
+
+          {/* Lock Kiosk (Hospital Admin) */}
+          <button
+            onClick={onLockKiosk}
+            className="p-2 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-700 hover:bg-rose-50 transition-colors"
+            title="Lock Kiosk"
+          >
+            <LockKeyhole className="w-4 h-4" />
           </button>
         </div>
       </div>

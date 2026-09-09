@@ -1,5 +1,14 @@
 import { ClinicalSummary, DigitizedDocument, HistoryObject, PatientProfile } from '../types';
 
+/**
+ * @file aiClientService.ts
+ * @description Provider-neutral frontend client for the AI pipeline.
+ *
+ * All AI work is performed by the backend so that no provider API key ever
+ * reaches the browser.  These helpers talk to the provider-neutral routes
+ * under /api/ai/* (plus /api/documents/ocr and /api/qr/decode).
+ */
+
 export async function generateClinicalSummary(
   historyObject: HistoryObject,
   documents: DigitizedDocument[],
@@ -7,7 +16,7 @@ export async function generateClinicalSummary(
   language: string = 'en'
 ): Promise<{ success: boolean; summary: ClinicalSummary; source: string }> {
   try {
-    const res = await fetch('/api/gemini/summarize', {
+    const res = await fetch('/api/ai/summarize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -105,7 +114,7 @@ export async function processDocumentOcr(
   documentType: string = 'prescription'
 ): Promise<any> {
   try {
-    const res = await fetch('/api/gemini/ocr', {
+    const res = await fetch('/api/documents/ocr', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -159,7 +168,7 @@ export async function checkDrugInteractions(
   medications: string[]
 ): Promise<{ interactions: any[]; source: string }> {
   try {
-    const res = await fetch('/api/gemini/drug-interaction', {
+    const res = await fetch('/api/ai/drug-interaction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ medications }),

@@ -51,6 +51,7 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
   const [loadedPatientProfile, setLoadedPatientProfile] = useState<PatientProfile | null>(null);
   const [loadedHistory, setLoadedHistory] = useState<HistoryObject | null>(null);
   const [loadedDocuments, setLoadedDocuments] = useState<DigitizedDocument[]>([]);
+  const [loadedSummary, setLoadedSummary] = useState<any>(null);
   const [isLoadingPatientRecord, setIsLoadingPatientRecord] = useState(false);
 
   // Reprioritize Modal State
@@ -157,16 +158,19 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
         if (data.patientProfile) setLoadedPatientProfile(data.patientProfile);
         if (data.historyObject) setLoadedHistory(data.historyObject);
         if (data.documents) setLoadedDocuments(data.documents);
+        if (data.summary) setLoadedSummary(data.summary);
       } else {
         // Fallback to active props if encounter is current kiosk session
         setLoadedPatientProfile(null);
         setLoadedHistory(null);
         setLoadedDocuments([]);
+        setLoadedSummary(null);
       }
     } catch {
       setLoadedPatientProfile(null);
       setLoadedHistory(null);
       setLoadedDocuments([]);
+      setLoadedSummary(null);
     } finally {
       setIsLoadingPatientRecord(false);
     }
@@ -456,6 +460,7 @@ export const DoctorConsolePage: React.FC<DoctorConsolePageProps> = ({
               onOpenWhatsApp={onOpenWhatsApp}
               onOpenQueue={() => setActiveTab('queue')}
               createdToken={selectedToken || createdToken}
+              initialSummary={loadedSummary}
             />
 
           </div>

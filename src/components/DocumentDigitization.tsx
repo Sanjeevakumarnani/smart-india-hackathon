@@ -24,7 +24,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { DigitizedDocument, InteractionResult, LanguageCode, PatientProfile } from '../types';
-import { checkDrugInteractions } from '../services/geminiService';
+import { checkDrugInteractions } from '../services/aiClientService';
 import { translate } from '../services/i18n';
 
 interface DocumentDigitizationProps {
@@ -574,7 +574,7 @@ export const DocumentDigitization: React.FC<DocumentDigitizationProps> = ({
                     placeholder="AI Transcribed handwriting text will appear here..."
                   />
                   <p className="text-[10px] text-indigo-700 mt-1">
-                    ✓ Verbatim handwriting &amp; printed text extracted by Multimodal Gemini Vision model.
+                    ✓ Verbatim handwriting &amp; printed text extracted by hospital AI Vision model.
                   </p>
                 </div>
 

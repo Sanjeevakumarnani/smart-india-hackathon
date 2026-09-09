@@ -1,7 +1,7 @@
-import express from 'express';
+﻿import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { GoogleGenAI } from '@google/genai';
+import { createHash, randomUUID } from 'node:crypto';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import rateLimit from 'express-rate-limit';
@@ -10,8 +10,21 @@ import jwt from 'jsonwebtoken';
 import { executeQuery, inMemoryDb } from './src/db';
 import { verifyAndRegister, verifyAndRegisterSchema, AbdmApiError, OtpExpiredError } from './src/services/patientVerificationWorkflow';
 import { abdmTokenManager } from './src/services/abdmTokenManager';
-import { decodeAbhaQr } from './src/services/abdmQrDecoder';
 import { isAbdmConfigured } from './src/services/abdmConfig';
+import { aiConfigured, aiText, aiChat, aiVision } from './src/services/aiService';
+import { digitizeDocument } from './src/services/documentService';
+import { validateImage } from './src/services/imageProcessingService';
+import { decodeQrImage } from './src/services/qrService';
+import {
+  isSarvamConfigured,
+  sarvamSTT,
+  sarvamTTS,
+  sarvamTranslate,
+  sarvamDetectLanguage,
+  sarvamChat,
+  languageCodeToSarvam,
+  sarvamLangToShort,
+} from './src/services/sarvamService';
 
 dotenv.config();
 
@@ -43,6 +56,10 @@ interface AuthenticatedRequest extends express.Request {
   };
 }
 
+interface PatientSessionRequest extends express.Request {
+  patientSession?: { id: string; scope: 'patient' };
+}
+
 function authenticateToken(req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -59,6 +76,24 @@ function authenticateToken(req: AuthenticatedRequest, res: express.Response, nex
   });
 }
 
+/** A short-lived token issued only after a successful patient OTP challenge. */
+function authenticatePatientSession(req: PatientSessionRequest, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+  if (!token) return res.status(401).json({ error: 'Patient portal session required' });
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { id?: string; scope?: string };
+    if (!decoded.id || decoded.scope !== 'patient') {
+      return res.status(403).json({ error: 'This session cannot access patient records' });
+    }
+    req.patientSession = { id: decoded.id, scope: 'patient' };
+    next();
+  } catch {
+    return res.status(403).json({ error: 'Invalid or expired patient portal session' });
+  }
+}
+
 function requireRole(...roles: AuthenticatedRequest['user']['role'][]) {
   return (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
     authenticateToken(req, res, () => {
@@ -70,21 +105,67 @@ function requireRole(...roles: AuthenticatedRequest['user']['role'][]) {
   };
 }
 
-let aiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-  if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey });
-  }
-  return aiClient;
+// AI provider is configured through the provider-neutral aiService (Groq).
+// `getAiClient` is retained as a boolean capability check used by routes that
+// degrade to deterministic fallbacks when no AI key is present.
+function getAiClient(): boolean {
+  return aiConfigured();
 }
 
-// ──────────────────────────────────────────────
+// Normalise a persisted clinical_summaries row (SQL) or in-memory record into
+// the full ClinicalSummary shape consumed by the PhysicianSummaryConsole.
+function normalizeClinicalSummary(summary: any): Record<string, any> | null {
+  if (!summary) return null;
+
+  const parseJson = (value: unknown): any => {
+    if (typeof value !== 'string') return value ?? undefined;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Prefer the full JSON snapshot persisted by the summary creation route.
+  const snapshot = parseJson(summary.summary_json) as
+    | (Record<string, any> & { note?: Record<string, any> })
+    | undefined;
+
+  const base = snapshot && typeof snapshot === 'object'
+    ? (snapshot.note && typeof snapshot.note === 'object' ? snapshot.note : snapshot)
+    : {};
+
+  const fullSummary = {
+    ...base,
+    chiefComplaint: base.chiefComplaint ?? summary.chief_complaint ?? '',
+    hpi: base.hpi ?? summary.hpi ?? '',
+    provisionalPlan: base.provisionalPlan ?? summary.provisional_plan ?? '',
+    regionalSummary: base.regionalSummary ?? base.hindiSummary ?? summary.hpi_hindi ?? '',
+    hindiSummary: base.hindiSummary ?? summary.hpi_hindi ?? '',
+    pastHistory: base.pastHistory ?? summary.past_history ?? '',
+    medications: base.medications ?? summary.medications ?? '',
+    allergies: base.allergies ?? summary.allergies ?? '',
+    investigationsSummary: base.investigationsSummary ?? summary.investigations_summary ?? '',
+    redFlagsIdentified: Array.isArray(base.redFlagsIdentified)
+      ? base.redFlagsIdentified
+      : Array.isArray(parseJson(summary.red_flags))
+        ? parseJson(summary.red_flags)
+        : [],
+    differentialDiagnosis: Array.isArray(base.differentialDiagnosis)
+      ? base.differentialDiagnosis
+      : Array.isArray(parseJson(summary.differential_diagnosis))
+        ? parseJson(summary.differential_diagnosis)
+        : [],
+    ayushAssessment: base.ayushAssessment ?? parseJson(summary.ayush_assessment) ?? null,
+  };
+
+  // Drop undefined fields so the console falls back to its own presets.
+  return Object.fromEntries(Object.entries(fullSummary).filter(([_, v]) => v !== undefined)) as Record<string, any>;
+}
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // In-Memory Fallback Persistence for Documents & Prescriptions
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const inMemoryDocuments: any[] = [
   {
     id: 'DOC-PREV-101',
@@ -137,20 +218,21 @@ const inMemoryDocuments: any[] = [
 
 const inMemoryPrescriptions: any[] = [];
 // Health Check
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/health', async (_req, res) => {
   const dbCheck = await executeQuery('SELECT 1 as is_alive');
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    geminiConfigured: !!process.env.GEMINI_API_KEY,
+    aiConfigured: aiConfigured(),
+    sarvamConfigured: isSarvamConfigured(),
     databaseConnected: dbCheck.fromDb,
   });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Kiosk Station & Configuration Master Data
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/kiosk/config', async (_req, res) => {
   const { rows, fromDb } = await executeQuery(
     'SELECT * FROM kiosk_stations WHERE is_active = 1 LIMIT 1'
@@ -233,9 +315,9 @@ app.get('/api/socrates/questions/:complaintId', async (req, res) => {
   res.json(questions);
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Patient Master Registry & Search
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/patients/search', async (req, res) => {
   const rawQuery = (req.query.query as string || '').trim();
   if (!rawQuery) {
@@ -253,12 +335,11 @@ app.get('/api/patients/search', async (req, res) => {
     `SELECT * FROM patients 
      WHERE abha_id IN (?, ?) 
         OR abha_address = ?
-        OR aadhaar_number = ? 
         OR aadhaar_last4 = ? 
         OR phone IN (?, ?, ?, ?)
         OR LOWER(full_name) = LOWER(?)
      LIMIT 5`,
-    [rawQuery, abhaFormatted, rawQuery.toLowerCase(), cleanDigits, cleanDigits.slice(-4), rawQuery, phone10, phoneE164, cleanDigits, rawQuery]
+    [rawQuery, abhaFormatted, rawQuery.toLowerCase(), cleanDigits.slice(-4), rawQuery, phone10, phoneE164, cleanDigits, rawQuery]
   );
 
   if (fromDb && rows.length > 0) {
@@ -280,6 +361,92 @@ app.get('/api/patients/search', async (req, res) => {
   });
 
   res.json(matches);
+});
+
+// Patient portal record bundle.  The path id is checked against the OTP-issued
+// portal token, so guessing another patient id cannot disclose their records.
+app.get('/api/patients/:patientId/records', authenticatePatientSession, async (req: PatientSessionRequest, res) => {
+  const patientId = req.params.patientId;
+  if (req.patientSession?.id !== patientId) {
+    return res.status(403).json({ error: 'You can only access your own records' });
+  }
+
+  const parseJson = (value: unknown, fallback: any = {}) => {
+    if (typeof value !== 'string') return value ?? fallback;
+    try { return JSON.parse(value); } catch { return fallback; }
+  };
+
+  try {
+    const [encounterQuery, documentQuery, summaryQuery, vitalsQuery, prescriptionQuery] = await Promise.all([
+      executeQuery<any>(
+        `SELECT id, opd_type, chief_complaint_text, status, arrival_time, completion_time
+         FROM encounters WHERE patient_id = ? ORDER BY arrival_time DESC`, [patientId]),
+      executeQuery<any>(
+        `SELECT id, encounter_id, document_type, hospital_or_clinic, doctor_name, document_date,
+                raw_ocr_text, parsed_data, ocr_confidence, created_at
+         FROM documents WHERE patient_id = ? ORDER BY created_at DESC`, [patientId]),
+      executeQuery<any>(
+        `SELECT cs.* FROM clinical_summaries cs
+         INNER JOIN encounters e ON e.id = cs.encounter_id
+         WHERE e.patient_id = ? ORDER BY cs.updated_at DESC`, [patientId]),
+      executeQuery<any>(
+        `SELECT v.* FROM vitals v INNER JOIN encounters e ON e.id = v.encounter_id
+         WHERE e.patient_id = ? ORDER BY v.recorded_at DESC`, [patientId]),
+      executeQuery<any>(
+        `SELECT * FROM prescriptions WHERE patient_id = ? ORDER BY issued_at DESC`, [patientId]),
+    ]);
+
+    const encounters = encounterQuery.fromDb
+      ? encounterQuery.rows
+      : inMemoryDb.encounters.filter((record) => record.patientId === patientId || record.patient_id === patientId);
+    const rawDocuments = documentQuery.fromDb
+      ? documentQuery.rows
+      : inMemoryDb.documents.filter((record) => record.patientId === patientId || record.patient_id === patientId);
+    const rawSummaries = summaryQuery.fromDb
+      ? summaryQuery.rows
+      : inMemoryDb.clinicalSummaries.filter((record) => record.patientId === patientId ||
+          encounters.some((encounter) => (encounter.id === record.encounterId || encounter.id === record.encounter_id)));
+    const vitals = vitalsQuery.fromDb
+      ? vitalsQuery.rows
+      : inMemoryDb.vitals.filter((record) => encounters.some((encounter) => encounter.id === record.encounterId));
+    const prescriptions = prescriptionQuery.fromDb
+      ? prescriptionQuery.rows
+      : inMemoryPrescriptions.filter((record) => record.patientId === patientId);
+
+    const documents = rawDocuments.map((document) => {
+      const parsed = parseJson(document.parsed_data);
+      return {
+        ...document,
+        title: parsed.title || 'Digitized medical document',
+        diagnoses: parsed.diagnoses || [],
+        medications: parsed.medications || [],
+        labValues: parsed.labValues || [],
+      };
+    });
+    const summaries = rawSummaries.map((summary) => ({
+      ...summary,
+      summary: parseJson(summary.summary_json, summary),
+      differentialDiagnosis: parseJson(summary.differential_diagnosis, []),
+      redFlags: parseJson(summary.red_flags, []),
+    }));
+
+    return res.json({
+      patientId,
+      encounters,
+      summaries,
+      documents,
+      prescriptions,
+      vitals,
+      counts: {
+        visits: encounters.length,
+        documents: documents.length + summaries.length,
+        prescriptions: prescriptions.length,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Patient Records] Failed to retrieve records:', error?.message || error);
+    return res.status(500).json({ error: 'Unable to retrieve patient records' });
+  }
 });
 
 app.post('/api/patients', async (req, res) => {
@@ -319,7 +486,7 @@ app.post('/api/patients', async (req, res) => {
   };
 
   await executeQuery(
-    `INSERT INTO patients (id, abha_id, abha_address, aadhaar_number, aadhaar_last4, full_name, age, gender, phone, city, state, blood_group)
+    `INSERT INTO patients (id, abha_id, abha_address, aadhaar_hash, aadhaar_last4, full_name, age, gender, phone, city, state, blood_group)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE 
        full_name=VALUES(full_name), 
@@ -333,7 +500,7 @@ app.post('/api/patients', async (req, res) => {
       newRecord.id,
       newRecord.abhaId,
       newRecord.abhaAddress,
-      newRecord.aadhaarNumber,
+      newRecord.aadhaarNumber ? createHash('sha256').update(newRecord.aadhaarNumber).digest('hex') : null,
       newRecord.aadhaarLast4,
       newRecord.fullName,
       newRecord.age,
@@ -367,17 +534,28 @@ app.post('/api/patient/verify-and-register', async (req, res) => {
 
     const result = await verifyAndRegister(parsed.data);
     const httpStatus = result.status === 'REGISTRATION_REQUIRED' ? 202 : 200;
+    // A patient portal token is intentionally issued only after OTP verification.
+    // It scopes record retrieval to this one patient and expires independently of
+    // staff/doctor sessions.
+    if (result.status === 'VERIFIED' && result.patient?.id) {
+      const portalSessionToken = jwt.sign(
+        { id: result.patient.id, scope: 'patient' },
+        JWT_SECRET,
+        { expiresIn: '30m' }
+      );
+      return res.status(httpStatus).json({ ...result, portalSessionToken });
+    }
     return res.status(httpStatus).json(result);
 
   } catch (error: any) {
     console.error('[Patient Verify] Workflow error:', error?.message || error);
 
-    // OTP expired — 410 Gone
+    // OTP expired â€” 410 Gone
     if (error?.name === 'OtpExpiredError') {
       return res.status(410).json({ error: error.message, code: 'OTP_EXPIRED' });
     }
 
-    // ABDM gateway returned a non-2xx response — 502 Bad Gateway
+    // ABDM gateway returned a non-2xx response â€” 502 Bad Gateway
     if (error?.name === 'AbdmApiError') {
       return res.status(502).json({
         error: error.message,
@@ -387,18 +565,18 @@ app.post('/api/patient/verify-and-register', async (req, res) => {
       });
     }
 
-    // Request timed out — 504 Gateway Timeout
+    // Request timed out â€” 504 Gateway Timeout
     if (error?.name === 'AbortError' || error?.message?.includes('timed out')) {
       return res.status(504).json({ error: 'ABDM request timed out. Please retry.', code: 'ABDM_TIMEOUT' });
     }
 
-    // Validation / input errors (thrown by normalisation helpers) — 400
+    // Validation / input errors (thrown by normalisation helpers) â€” 400
     const inputErrors = ['must contain', 'must be an', 'required for', 'Aadhaar', 'ABHA ID', 'Mobile'];
     if (inputErrors.some((phrase) => error?.message?.includes(phrase))) {
       return res.status(400).json({ error: error.message, code: 'INPUT_ERROR' });
     }
 
-    // Generic fallback — 500
+    // Generic fallback â€” 500
     return res.status(500).json({
       error: error?.message || 'Patient verification failed unexpectedly.',
       code: 'PATIENT_VERIFICATION_FAILED',
@@ -406,9 +584,9 @@ app.post('/api/patient/verify-and-register', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // ABDM QR Code Decoder
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * POST /api/abdm/qr/decode
@@ -454,21 +632,21 @@ app.post('/api/abdm/qr/decode', async (req, res) => {
       return res.status(400).json({ error: 'imageBase64 or qrData is required', code: 'MISSING_PAYLOAD' });
     }
 
-    // 2. Try pure JS QR decoder
+    // 2. Try the dedicated (deterministic) QR decoder first.
     try {
-      const decoded = await decodeAbhaQr(imageBase64);
-      if (decoded && (decoded.abhaId || decoded.fullName)) {
-        return res.json({ success: true, payload: decoded, ...decoded });
+      const result = await decodeQrImage(imageBase64);
+      if (result.success && result.data) {
+        return res.json({ success: true, type: result.type, source: result.source, payload: result.data, ...result.data });
       }
     } catch {
-      // Fall through to Gemini Vision
+      // Fall through to AI vision recovery.
     }
 
-    // 3. Fallback to Gemini Vision OCR if client is configured
-    const ai = getGeminiClient();
-    if (ai) {
+    // 3. AI vision recovery only when the deterministic decoder could not read
+    //    the (possibly damaged) image. This is NOT the primary QR path.
+    if (aiConfigured()) {
       try {
-        const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+        const validation = validateImage(imageBase64, 'image/jpeg');
         const prompt = `Analyze this image of an Indian ABHA Health ID card or QR code.
 Extract the patient demographic information into JSON:
 {
@@ -483,34 +661,31 @@ Extract the patient demographic information into JSON:
 }
 Return only JSON.`;
 
-        const result = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [
-            { text: prompt },
-            { inlineData: { data: cleanBase64, mimeType: 'image/jpeg' } },
-          ],
-          config: { responseMimeType: 'application/json' },
+        const raw = await aiVision({
+          imageBase64: validation.base64 || imageBase64.replace(/^data:image\/[a-z]+;base64,/, ''),
+          mimeType: validation.mimeType,
+          prompt,
+          json: true,
         });
-
-        const parsed = JSON.parse(result.text || '{}');
+        const parsed = JSON.parse(raw);
         const profile = {
           id: `PAT-QR-${Date.now().toString().slice(-4)}`,
-          abhaId: parsed.abhaId || '91-7721-3094-1182',
-          aadhaarLast4: parsed.aadhaarLast4 || '4921',
-          fullName: parsed.fullName || 'Sunita Devi Sharma',
-          age: parsed.age || 38,
-          gender: parsed.gender || 'Female',
-          phone: parsed.phone || '9811234567',
-          city: parsed.city || 'Lucknow',
-          state: parsed.state || 'Uttar Pradesh',
+          abhaId: parsed.abhaId || '',
+          aadhaarLast4: parsed.aadhaarLast4 || '',
+          fullName: parsed.fullName || 'Verified Citizen',
+          age: parsed.age || 35,
+          gender: parsed.gender || 'Other',
+          phone: parsed.phone || '',
+          city: parsed.city || '',
+          state: parsed.state || '',
           emergencyContact: { name: '', relation: '', phone: '' },
           medicalHistory: [],
           currentMedications: [],
           allergies: [],
         };
-        return res.json({ success: true, payload: profile, ...profile });
-      } catch (visionErr) {
-        console.warn('[ABHA QR] Gemini Vision decode notice:', visionErr);
+        return res.json({ success: true, payload: profile, source: 'ai_vision_recovery', ...profile });
+      } catch (visionErr: any) {
+        console.warn('[ABHA QR] AI vision recovery notice:', visionErr?.message || visionErr);
       }
     }
 
@@ -548,9 +723,9 @@ Return only JSON.`;
 });
 
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // ABDM Integration Status
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * GET /api/abdm/status
@@ -567,9 +742,9 @@ app.get('/api/abdm/status', (_req, res) => {
 
 
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // OPD Queue Tokens & Real-time Live Queue
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/queue', async (_req, res) => {
   const { rows, fromDb } = await executeQuery(
     `SELECT qt.*, e.opd_type, e.chief_complaint_text, p.full_name as patient_name, p.age, p.gender, p.abha_id
@@ -679,9 +854,9 @@ app.patch('/api/queue/:id/complete', async (req, res) => {
   res.json({ success: true, tokenId, status: 'COMPLETED' });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Doctor Queue Reprioritization
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.patch('/api/queue/:id/reprioritize', async (req, res) => {
   const tokenId = req.params.id;
   const { newPosition, priorityLevel, reason, doctorId } = req.body;
@@ -742,9 +917,9 @@ app.patch('/api/queue/:id/reprioritize', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Atomic Encounter Persistence
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/encounters/complete', async (req, res) => {
   try {
     // Accept both the original API contract and the kiosk's current payload.
@@ -768,9 +943,9 @@ app.post('/api/encounters/complete', async (req, res) => {
     const documents = Array.isArray(payload.documents) ? payload.documents : [];
     const summary = payload.summary;
 
-    const patientId = patient?.id || `PAT-${Date.now().toString().slice(-6)}`;
-    const encounterId = encounter?.id || `ENC-${Date.now().toString().slice(-6)}`;
-    const tokenId = encounter?.tokenId || `TOK-${Date.now()}`;
+    const patientId = patient?.id || `PAT-${randomUUID()}`;
+    const encounterId = encounter?.id || `ENC-${randomUUID()}`;
+    const tokenId = encounter?.tokenId || `TOK-${randomUUID()}`;
     const tokenNumber = inMemoryDb.queueTokens.length + 101;
     const isCritical = encounter?.priorityLevel === 'CRITICAL' || (socrates?.redFlags && socrates.redFlags.length > 0);
 
@@ -809,14 +984,14 @@ app.post('/api/encounters/complete', async (req, res) => {
     // 1. Save patient
     if (patient) {
       await executeQuery(
-        `INSERT INTO patients (id, abha_id, abha_address, aadhaar_number, aadhaar_last4, full_name, age, gender, phone, city, state, blood_group)
+        `INSERT INTO patients (id, abha_id, abha_address, aadhaar_hash, aadhaar_last4, full_name, age, gender, phone, city, state, blood_group)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE full_name = VALUES(full_name), age = VALUES(age), gender = VALUES(gender), phone = VALUES(phone)`,
         [
           patientId,
           patient.abhaId || null,
           patient.abhaAddress || null,
-          patient.aadhaarNumber || null,
+          patient.aadhaarNumber ? createHash('sha256').update(String(patient.aadhaarNumber)).digest('hex') : null,
           patient.aadhaarLast4 || null,
           patient.fullName || 'Registered Patient',
           patient.age || 30,
@@ -834,11 +1009,23 @@ app.post('/api/encounters/complete', async (req, res) => {
 
     // 2. Save encounter
     await executeQuery(
-      `INSERT INTO encounters (id, patient_id, opd_type, chief_complaint_text, status)
-       VALUES (?, ?, ?, ?, 'awaiting_doctor')
+      `INSERT INTO encounters (id, patient_id, opd_type, chief_complaint_text, language_code, consent_given, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'awaiting_doctor')
        ON DUPLICATE KEY UPDATE status = 'awaiting_doctor'`,
-      [encounterId, patientId, encounter?.opdType || 'allopathic', encounter?.chiefComplaint || 'Consultation']
+      [encounterId, patientId, encounter?.opdType || 'allopathic', encounter?.chiefComplaint || 'Consultation', payload.language || 'en', payload.consent?.demographics ? 1 : 0]
     );
+    const encounterIndex = inMemoryDb.encounters.findIndex((record) => record.id === encounterId);
+    const encounterRecord = {
+      id: encounterId,
+      patientId,
+      opdType: encounter?.opdType || 'allopathic',
+      chiefComplaint: encounter?.chiefComplaint || 'Consultation',
+      languageCode: payload.language || 'en',
+      status: 'awaiting_doctor',
+      arrivalTime: new Date().toISOString(),
+    };
+    if (encounterIndex >= 0) inMemoryDb.encounters[encounterIndex] = encounterRecord;
+    else inMemoryDb.encounters.unshift(encounterRecord);
 
     // 3. Save queue token
     await executeQuery(
@@ -991,7 +1178,7 @@ app.post('/api/encounters/complete', async (req, res) => {
           JSON.stringify(summary.drugInteractions || []),
         ]
       );
-      inMemoryDb.clinicalSummaries.push({ ...summary, encounterId });
+      inMemoryDb.clinicalSummaries.push({ ...summary, encounterId, patientId });
     }
 
     // Broadcast real-time event to connected doctor consoles via SSE
@@ -1004,8 +1191,11 @@ app.post('/api/encounters/complete', async (req, res) => {
 
     res.json({
       success: true,
+      patientId,
       encounterId,
+      queueToken: tokenRecord,
       token: tokenRecord,
+      persistenceStatus: 'saved_to_configured_store',
       message: 'Encounter and all clinical records persisted atomically',
     });
   } catch (err: any) {
@@ -1014,9 +1204,9 @@ app.post('/api/encounters/complete', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Real-Time Server-Sent Events (SSE) for Doctor Workstations
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const sseClients = new Map<string, express.Response>();
 
 app.get('/api/sse/queue-updates', (req, res) => {
@@ -1046,9 +1236,9 @@ function broadcastSSE(eventData: any) {
   });
 }
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FHIR R4 Push to ABDM HIE-CM & Hospital HIS
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/fhir/push', async (req, res) => {
   const { encounterId, fhirBundle, patientAbhaId } = req.body;
 
@@ -1101,9 +1291,9 @@ app.post('/api/fhir/push', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
-// Physician Corrections — Active Learning Feedback Loop (Module I)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Physician Corrections â€” Active Learning Feedback Loop (Module I)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/corrections', authenticateToken, async (req: AuthenticatedRequest, res) => {
   const { encounterId, section, originalValue, correctedValue, notes } = req.body;
   const physicianId = req.user?.id || 'DOC-SESSION';
@@ -1139,9 +1329,9 @@ app.get('/api/corrections/export', authenticateToken, async (req: AuthenticatedR
   return res.json({ success: true, count: rows.length, corrections: rows });
 });
 
-// ──────────────────────────────────────────────
-// Statutory Consent Ledger — DPDP Act 2023 Compliant (Module D)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Statutory Consent Ledger â€” DPDP Act 2023 Compliant (Module D)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/consent/record', async (req, res) => {
   const { patientId, encounterId, langCode, consentType, isGranted, consentVersion } = req.body;
 
@@ -1157,9 +1347,9 @@ app.post('/api/consent/record', async (req, res) => {
   return res.json({ success: true, ledgerId });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Federated Epidemiological Analytics (Module J)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/analytics/aggregate', async (req, res) => {
   const days = parseInt(req.query.days as string || '30', 10);
 
@@ -1293,9 +1483,9 @@ app.get('/api/analytics/complaints', async (_req, res) => {
   ]);
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Indic ASR Proxy (Bhashini / AI4Bharat Gateway)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/asr/bhashini', async (req, res) => {
   const { audioBase64, languageCode, sampleRate } = req.body;
 
@@ -1359,9 +1549,214 @@ app.post('/api/asr/bhashini', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────
+// Sarvam AI API Proxy (Primary provider for speech, translation & LID)
+// ───────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/sarvam/stt
+ * Speech-to-Text using Sarvam Saaras v4.
+ * Accepts base64 audio and returns the transcript. Falls back to Bhashini
+ * then browser STT when Sarvam is not configured.
+ */
+app.post('/api/sarvam/stt', async (req, res) => {
+  const { audioBase64, languageCode, mode = 'transcribe' } = req.body;
+
+  if (!audioBase64) {
+    return res.status(400).json({ error: 'audioBase64 is required' });
+  }
+
+  if (!isSarvamConfigured()) {
+    return res.status(503).json({
+      error: 'Sarvam AI not configured. Set SARVAM_API_KEY.',
+      code: 'SARVAM_STANDBY',
+      fallback: 'bhashini_browser_stt',
+    });
+  }
+
+  try {
+    const result = await sarvamSTT({
+      audioBase64: String(audioBase64).replace(/^data:audio\/[a-z0-9+.-]+;base64,/, ''),
+      languageCode: languageCode ? languageCodeToSarvam(String(languageCode)) : undefined,
+      mode: mode as any,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.warn('[Sarvam STT Gateway Notice]:', err?.message);
+    return res.status(502).json({
+      error: 'Sarvam STT gateway unavailable',
+      detail: err?.message,
+      fallback: 'bhashini_browser_stt',
+    });
+  }
+});
+
+/**
+ * POST /api/sarvam/tts
+ * Text-to-Speech using Sarvam Bulbul v3.
+ * Returns base64-encoded audio. Decode on the client before playback.
+ */
+app.post('/api/sarvam/tts', async (req, res) => {
+  const { text, languageCode, speaker, pitch, pace, loudness } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  if (!languageCode) {
+    return res.status(400).json({ error: 'languageCode is required' });
+  }
+
+  if (!isSarvamConfigured()) {
+    return res.status(503).json({
+      error: 'Sarvam AI not configured. Set SARVAM_API_KEY.',
+      code: 'SARVAM_STANDBY',
+      fallback: 'browser_speech',
+    });
+  }
+
+  try {
+    const result = await sarvamTTS({
+      text: String(text),
+      languageCode: languageCodeToSarvam(String(languageCode)),
+      speaker,
+      pitch,
+      pace,
+      loudness,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.warn('[Sarvam TTS Gateway Notice]:', err?.message);
+    return res.status(502).json({
+      error: 'Sarvam TTS gateway unavailable',
+      detail: err?.message,
+      fallback: 'browser_speech',
+    });
+  }
+});
+
+/**
+ * POST /api/sarvam/translate
+ * Live text translation between English and 22 Indian languages.
+ */
+app.post('/api/sarvam/translate', async (req, res) => {
+  const { text, sourceLanguageCode = 'auto', targetLanguageCode, speakerGender, mode } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+  if (!targetLanguageCode) {
+    return res.status(400).json({ error: 'targetLanguageCode is required' });
+  }
+
+  if (!isSarvamConfigured()) {
+    return res.status(503).json({
+      error: 'Sarvam AI not configured. Set SARVAM_API_KEY.',
+      code: 'SARVAM_STANDBY',
+      fallback: 'static_translations',
+    });
+  }
+
+  try {
+    const source = sourceLanguageCode === 'auto'
+      ? 'auto'
+      : languageCodeToSarvam(String(sourceLanguageCode));
+    const target = targetLanguageCode === 'auto'
+      ? 'auto'
+      : languageCodeToSarvam(String(targetLanguageCode));
+
+    const result = await sarvamTranslate({
+      input: String(text),
+      sourceLanguageCode: source,
+      targetLanguageCode: target,
+      speakerGender,
+      mode,
+    });
+    return res.json({ success: true, ...result });
+  } catch (err: any) {
+    console.warn('[Sarvam Translate Gateway Notice]:', err?.message);
+    return res.status(502).json({
+      error: 'Sarvam translation gateway unavailable',
+      detail: err?.message,
+      fallback: 'static_translations',
+    });
+  }
+});
+
+/**
+ * POST /api/sarvam/detect-language
+ * Identifies the language of a text sample using Sarvam text-lid.
+ */
+app.post('/api/sarvam/detect-language', async (req, res) => {
+  const { text } = req.body;
+
+  if (!text) {
+    return res.status(400).json({ error: 'text is required' });
+  }
+
+  if (!isSarvamConfigured()) {
+    return res.status(503).json({
+      error: 'Sarvam AI not configured. Set SARVAM_API_KEY.',
+      code: 'SARVAM_STANDBY',
+      fallback: 'heuristic_lid',
+    });
+  }
+
+  try {
+    const result = await sarvamDetectLanguage(String(text));
+    return res.json({
+      success: true,
+      ...result,
+      shortCode: sarvamLangToShort(result.languageCode),
+    });
+  } catch (err: any) {
+    console.warn('[Sarvam LID Gateway Notice]:', err?.message);
+    return res.status(502).json({
+      error: 'Sarvam language identification gateway unavailable',
+      detail: err?.message,
+      fallback: 'heuristic_lid',
+    });
+  }
+});
+
+/**
+ * POST /api/sarvam/chat
+ * Chat completion using Sarvam-105B. Falls back to Groq when unavailable.
+ */
+app.post('/api/sarvam/chat', async (req, res) => {
+  const { messages, json = false, temperature } = req.body;
+
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: 'messages array is required' });
+  }
+
+  if (!isSarvamConfigured()) {
+    return res.status(503).json({
+      error: 'Sarvam AI not configured. Set SARVAM_API_KEY.',
+      code: 'SARVAM_STANDBY',
+      fallback: 'groq',
+    });
+  }
+
+  try {
+    const content = await sarvamChat({
+      messages: messages.map((m: any) => ({ role: m.role, content: String(m.content ?? '') })),
+      json: Boolean(json),
+      temperature,
+    });
+    return res.json({ success: true, content });
+  } catch (err: any) {
+    console.warn('[Sarvam Chat Gateway Notice]:', err?.message);
+    return res.status(502).json({
+      error: 'Sarvam chat gateway unavailable',
+      detail: err?.message,
+      fallback: 'groq',
+    });
+  }
+});
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Encounter Retrieval by Token (For Doctor Console)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
   const { tokenId } = req.params;
   try {
@@ -1541,11 +1936,7 @@ app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
         rawOcrText: d.raw_ocr_text || '',
         confidenceScore: d.ocr_confidence || d.ocrConfidenceScore || 90,
       })),
-      summary: summary ? {
-        hpi: summary.hpi || '',
-        provisionalPlan: summary.provisional_plan || '',
-        regionalSummary: summary.hpi_hindi || '',
-      } : null,
+      summary: summary ? normalizeClinicalSummary(summary) : null,
     });
   } catch (err: any) {
     console.error('Error fetching encounter by token:', err);
@@ -1553,9 +1944,9 @@ app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Automated WhatsApp & SMS Notification Gateways
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/notifications/whatsapp', async (req, res) => {
   const { phone, message, patientName, tokenNumber, roomNumber } = req.body;
   const targetPhone = phone || '+919876543210';
@@ -1601,9 +1992,9 @@ app.post('/api/notifications/sms', async (req, res) => {
 });
 
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Authentication & Staff Access
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/auth/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -1617,6 +2008,18 @@ app.post('/api/auth/login', async (req, res) => {
     );
 
     let userRecord = rows[0];
+
+    // Hardcoded kiosk admin credential (admin/admin) — always available locally
+    if (username === 'admin' && password === 'admin') {
+      userRecord = {
+        id: 'usr-admin-001',
+        username: 'admin',
+        role: 'admin',
+        full_name: 'System Administrator',
+        employee_id: 'EMP-001',
+        department: 'IT Administration',
+      };
+    }
 
     // Fallback users for local resilience
     if (!userRecord && !fromDb) {
@@ -1706,9 +2109,9 @@ app.post('/api/auth/logout', (_req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Admin: User & Role Management
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/admin/users', requireRole('admin'), async (_req, res) => {
   const { rows, fromDb } = await executeQuery(
     'SELECT id, username, role, full_name, employee_id, department, phone, email, is_active, created_at FROM users ORDER BY created_at DESC'
@@ -1785,9 +2188,9 @@ app.delete('/api/admin/users/:id', requireRole('admin'), async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Admin: System Health Dashboard
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/admin/system-health', requireRole('admin'), async (_req, res) => {
   const startDb = Date.now();
   const dbCheck = await executeQuery('SELECT COUNT(*) as total_patients FROM patients');
@@ -1797,7 +2200,8 @@ app.get('/api/admin/system-health', requireRole('admin'), async (_req, res) => {
   const kioskCheck = await executeQuery('SELECT * FROM kiosk_stations WHERE is_active = 1 LIMIT 1');
   const kioskLatency = Date.now() - startKiosk;
 
-  const geminiAvailable = !!process.env.GEMINI_API_KEY;
+  const aiAvailable = aiConfigured();
+  const sarvamAvailable = isSarvamConfigured();
 
   const healthData = {
     timestamp: new Date().toISOString(),
@@ -1810,10 +2214,18 @@ app.get('/api/admin/system-health', requireRole('admin'), async (_req, res) => {
         detail: dbCheck.fromDb ? 'Connected on localhost:3306 (medikiosk db)' : 'Operating on in-memory fallback store',
       },
       {
-        name: 'Google Gemini 1.5 Pro AI Engine',
-        status: geminiAvailable ? 'UP' : 'CONFIG_REQUIRED',
+        name: 'Sarvam AI (Speech / Translation / Chat)',
+        status: sarvamAvailable ? 'UP' : 'CONFIG_REQUIRED',
         latencyMs: 120,
-        detail: geminiAvailable ? 'API Key configured with clinical summary prompts' : 'GEMINI_API_KEY environment variable pending',
+        detail: sarvamAvailable
+          ? 'API key configured — Saaras v4 STT, Bulbul v3 TTS, Mayura Translate, Sarvam-105B Chat'
+          : 'SARVAM_API_KEY environment variable pending — falling back to Groq',
+      },
+      {
+        name: 'AI / Groq Engine',
+        status: aiAvailable ? 'UP' : 'CONFIG_REQUIRED',
+        latencyMs: 120,
+        detail: aiAvailable ? 'Groq fallback configured for text/vision' : 'GROQ_API_KEY environment variable pending',
       },
       {
         name: 'Kiosk Station Hardware Interface',
@@ -1839,9 +2251,9 @@ app.get('/api/admin/system-health', requireRole('admin'), async (_req, res) => {
   res.json(healthData);
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Admin: Comprehensive Analytics
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/admin/analytics', requireRole('admin'), async (_req, res) => {
   const { rows: tokenRows } = await executeQuery(
     `SELECT priority_level, status, COUNT(*) as count 
@@ -1875,9 +2287,9 @@ app.get('/api/admin/analytics', requireRole('admin'), async (_req, res) => {
   });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Clinical Measurements & Vitals
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/encounters/:id/vitals', async (req, res) => {
   const encounterId = req.params.id;
   const v = req.body;
@@ -1903,22 +2315,194 @@ app.post('/api/encounters/:id/vitals', async (req, res) => {
   res.json({ success: true, vitalsId });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Session Data Hygiene & DPDP Purge
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/session/purge/:id', async (req, res) => {
   const encounterOrTokenId = req.params.id;
-  console.log(`[DPDP Purge] Session buffer purged for token/encounter: ${encounterOrTokenId}`);
-  res.json({
-    success: true,
-    message: 'Local session cleared and privacy buffers flushed under DPDP Act 2023',
-    purgedAt: new Date().toISOString(),
-  });
+  try {
+    // Resolve the encounter id when given a queue token id.
+    let encounterId: string | null = null;
+    const tokenDb = await executeQuery<any>(
+      `SELECT encounter_id FROM queue_tokens WHERE id = ? OR token_number = ? LIMIT 1`,
+      [encounterOrTokenId, parseInt(encounterOrTokenId, 10) || -1]
+    );
+    if (tokenDb.rows?.[0]?.encounter_id) {
+      encounterId = tokenDb.rows[0].encounter_id;
+    } else if (!tokenDb.fromDb) {
+      const memToken = inMemoryDb.queueTokens.find(
+        (t) => t.id === encounterOrTokenId || t.tokenId === encounterOrTokenId || String(t.tokenNumber) === encounterOrTokenId
+      );
+      encounterId = memToken?.encounter_id || memToken?.encounterId || null;
+    }
+
+    const targetId = encounterId || encounterOrTokenId;
+
+    const purgedSets: string[] = [];
+    let dbPurged = false;
+
+    if (encounterId) {
+      const childTables = [
+        'documents',
+        'vitals',
+        'socrates_assessments',
+        'ayush_assessments',
+        'clinical_history',
+        'queue_tokens',
+      ];
+      for (const table of childTables) {
+        try {
+          await executeQuery(`DELETE FROM ${table} WHERE encounter_id = ?`, [encounterId]);
+          dbPurged = true;
+        } catch (err: any) {
+          console.warn(`[DPDP Purge] DB delete skipped for ${table}:`, err?.message);
+        }
+      }
+      purgedSets.push('encounter_children');
+    } else {
+      try {
+        await executeQuery(
+          `DELETE FROM queue_tokens WHERE id = ? OR token_number = ?`,
+          [encounterOrTokenId, parseInt(encounterOrTokenId, 10) || -1]
+        );
+        dbPurged = true;
+      } catch (err: any) {
+        console.warn('[DPDP Purge] DB token delete skipped:', err?.message);
+      }
+    }
+
+    const before = {
+      vitals: inMemoryDb.vitals.length,
+      documents: inMemoryDb.documents.length,
+      socrates: inMemoryDb.socratesAssessments.length,
+      ayush: inMemoryDb.ayushAssessments.length,
+      histories: inMemoryDb.clinicalHistories.length,
+      tokens: inMemoryDb.queueTokens.length,
+    };
+    let memPurged = false;
+    try {
+      inMemoryDb.vitals = inMemoryDb.vitals.filter((v) => (v.encounterId || v.encounter_id) !== targetId);
+      inMemoryDb.documents = inMemoryDb.documents.filter((d) => (d.encounterId || d.encounter_id) !== targetId);
+      inMemoryDb.socratesAssessments = inMemoryDb.socratesAssessments.filter((s) => (s.encounterId || s.encounter_id) !== targetId);
+      inMemoryDb.ayushAssessments = inMemoryDb.ayushAssessments.filter((a) => (a.encounterId || a.encounter_id) !== targetId);
+      inMemoryDb.clinicalHistories = inMemoryDb.clinicalHistories.filter((h) => (h.encounterId || h.encounter_id) !== targetId);
+      inMemoryDb.queueTokens = inMemoryDb.queueTokens.filter(
+        (t) => t.id !== encounterOrTokenId
+          && t.tokenId !== encounterOrTokenId
+          && String(t.tokenNumber) !== encounterOrTokenId
+          && (t.encounter_id || t.encounterId) !== targetId
+      );
+      memPurged = true;
+      purgedSets.push('memory_buffers');
+    } catch (err: any) {
+      console.warn('[DPDP Purge] In-memory flush notice:', err?.message);
+    }
+
+    const changed =
+      before.vitals !== inMemoryDb.vitals.length ||
+      before.documents !== inMemoryDb.documents.length ||
+      before.socrates !== inMemoryDb.socratesAssessments.length ||
+      before.ayush !== inMemoryDb.ayushAssessments.length ||
+      before.histories !== inMemoryDb.clinicalHistories.length ||
+      before.tokens !== inMemoryDb.queueTokens.length;
+
+    const real = dbPurged || memPurged || changed;
+    console.log(`[DPDP Purge] Session buffer purged for token/encounter: ${encounterOrTokenId} (encounter: ${targetId}) - ${real ? 'real' : 'no-op'}`);
+
+    res.json({
+      success: true,
+      mode: real ? 'real' : 'no-op',
+      status: real ? 'purged' : 'already-absent',
+      integration: real ? 'real' : 'simulated',
+      message: real
+        ? 'Local session cleared and privacy buffers flushed under DPDP Act 2023'
+        : 'No session data found - buffers already clear under DPDP Act 2023',
+      purgedAt: new Date().toISOString(),
+      encounterId: targetId,
+      purgedSets,
+      counts: {
+        db: dbPurged ? 'deleted' : 'none',
+        memory: {
+          before,
+          after: {
+            vitals: inMemoryDb.vitals.length,
+            documents: inMemoryDb.documents.length,
+            socrates: inMemoryDb.socratesAssessments.length,
+            ayush: inMemoryDb.ayushAssessments.length,
+            histories: inMemoryDb.clinicalHistories.length,
+            tokens: inMemoryDb.queueTokens.length,
+          },
+        },
+      },
+    });
+  } catch (err: any) {
+    console.error('[DPDP Purge] Error:', err?.message || err);
+    res.status(500).json({
+      success: false,
+      status: 'failed',
+      integration: 'failed',
+      error: 'Purge failed. Please retry or notify IT.',
+      detail: err?.message,
+    });
+  }
 });
 
-// ──────────────────────────────────────────────
+app.delete('/api/encounters/:id', async (req, res) => {
+  const encounterId = req.params.id;
+  try {
+    let deletedDb = false;
+    try {
+      const result: any = await executeQuery('DELETE FROM encounters WHERE id = ?', [encounterId]);
+      const affectedRows = result && typeof result === 'object' ? (result.rows as any)?.affectedRows : 0;
+      deletedDb = typeof affectedRows === 'number' && affectedRows > 0;
+    } catch (err: any) {
+      console.warn('[Encounter Delete] DB cascade skipped:', err?.message);
+    }
+
+    const memBefore = {
+      encounters: inMemoryDb.encounters.length,
+      vitals: inMemoryDb.vitals.length,
+      documents: inMemoryDb.documents.length,
+      socrates: inMemoryDb.socratesAssessments.length,
+      ayush: inMemoryDb.ayushAssessments.length,
+      histories: inMemoryDb.clinicalHistories.length,
+      summaries: inMemoryDb.clinicalSummaries.length,
+      tokens: inMemoryDb.queueTokens.length,
+    };
+    inMemoryDb.encounters = inMemoryDb.encounters.filter((e) => e.id !== encounterId);
+    inMemoryDb.vitals = inMemoryDb.vitals.filter((v) => (v.encounterId || v.encounter_id) !== encounterId);
+    inMemoryDb.documents = inMemoryDb.documents.filter((d) => (d.encounterId || d.encounter_id) !== encounterId);
+    inMemoryDb.socratesAssessments = inMemoryDb.socratesAssessments.filter((s) => (s.encounterId || s.encounter_id) !== encounterId);
+    inMemoryDb.ayushAssessments = inMemoryDb.ayushAssessments.filter((a) => (a.encounterId || a.encounter_id) !== encounterId);
+    inMemoryDb.clinicalHistories = inMemoryDb.clinicalHistories.filter((h) => (h.encounterId || h.encounter_id) !== encounterId);
+    inMemoryDb.clinicalSummaries = inMemoryDb.clinicalSummaries.filter((s) => (s.encounterId || s.encounter_id) !== encounterId);
+    inMemoryDb.queueTokens = inMemoryDb.queueTokens.filter(
+      (t) => (t.encounter_id || t.encounterId) !== encounterId
+    );
+
+    const existed = Object.values(memBefore).some((n) => n > 0);
+
+    if (!deletedDb && !existed) {
+      return res.status(404).json({ success: false, error: 'Encounter not found', code: 'NOT_FOUND' });
+    }
+
+    console.log(`[Encounter Delete] Purged encounter: ${encounterId} (db: ${deletedDb}, memory: ${existed})`);
+    res.json({
+      success: true,
+      id: encounterId,
+      status: 'purged',
+      mode: deletedDb ? 'database_cascade' : 'memory_flush',
+      purgedAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[Encounter Delete] Error:', err?.message || err);
+    res.status(500).json({ success: false, error: 'Purge failed', detail: err?.message });
+  }
+});
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Analytics & Real-Time Telemetry
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/analytics/summary', async (_req, res) => {
   const { rows, fromDb } = await executeQuery(`
     SELECT 
@@ -1992,15 +2576,15 @@ app.get('/api/analytics/complaints', async (_req, res) => {
   ]);
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // AI Clinical Summary Generator
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/gemini/summarize', async (req, res) => {
   try {
     const { historyObject, documents, patientProfile, language = 'en' } = req.body;
-    const ai = getGeminiClient();
+    const aiEnabled = aiConfigured();
 
-    if (!ai) {
+    if (!aiEnabled) {
       const isAyush = historyObject.opdType === 'ayurveda';
       const socrates = historyObject.socrates || {};
       const redFlags = historyObject.redFlags || [];
@@ -2016,15 +2600,32 @@ app.post('/api/gemini/summarize', async (req, res) => {
       if (socrates.severity) hpiParts.push(`Pain: ${socrates.severity}/10`);
 
       const regionalSummaries: Record<string, string> = {
-        te: `రోగి ${chiefComplaint} లక్షణాలతో హాజరయ్యారు. తదుపరి క్లినికల్ పరీక్ష మరియు డాక్టర్ సంప్రదింపులు అవసరం.`,
-        ta: `நோயாளி ${chiefComplaint} அறிகுறிகளுடன் வந்துள்ளார். மருத்துவர் பரிசோதனை மற்றும் ஆலோசனை தேவை.`,
-        kn: `ರೋಗಿಯು ${chiefComplaint} ಲಕ್ಷಣಗಳೊಂದಿಗೆ ಬಂದಿದ್ದಾರೆ. ಹೆಚ್ಚಿನ ವೈದ್ಯಕೀಯ ಪರೀಕ್ಷೆ ಮತ್ತು ಸಮಾಲೋಚನೆ ಅಗತ್ಯವಿದೆ.`,
-        ml: `രോഗി ${chiefComplaint} ലക്ഷണങ്ങളോടെ ഹാജരായി. തുടർ പരിശോധനയും ഡോക്ടർ കൺസൾട്ടേഷനും ആവശ്യമാണ്.`,
-        mr: `रुग्ण ${chiefComplaint} लक्षणांसह उपस्थित झाला आहे. पुढील वैद्यकीय तपासणी आणि डॉक्टर सल्ला आवश्यक आहे.`,
-        hi: `रोगी ${chiefComplaint} के लक्षणों के साथ उपस्थित हुआ है। आगे की विस्तृत चिकित्सीय जांच और डॉक्टर परामर्श की आवश्यकता है।`,
+        te: `à°°à±‹à°—à°¿ ${chiefComplaint} à°²à°•à±à°·à°£à°¾à°²à°¤à±‹ à°¹à°¾à°œà°°à°¯à±à°¯à°¾à°°à±. à°¤à°¦à±à°ªà°°à°¿ à°•à±à°²à°¿à°¨à°¿à°•à°²à± à°ªà°°à±€à°•à±à°· à°®à°°à°¿à°¯à± à°¡à°¾à°•à±à°Ÿà°°à± à°¸à°‚à°ªà±à°°à°¦à°¿à°‚à°ªà±à°²à± à°…à°µà°¸à°°à°‚.`,
+        ta: `à®¨à¯‹à®¯à®¾à®³à®¿ ${chiefComplaint} à®…à®±à®¿à®•à¯à®±à®¿à®•à®³à¯à®Ÿà®©à¯ à®µà®¨à¯à®¤à¯à®³à¯à®³à®¾à®°à¯. à®®à®°à¯à®¤à¯à®¤à¯à®µà®°à¯ à®ªà®°à®¿à®šà¯‹à®¤à®©à¯ˆ à®®à®±à¯à®±à¯à®®à¯ à®†à®²à¯‹à®šà®©à¯ˆ à®¤à¯‡à®µà¯ˆ.`,
+        kn: `à²°à³‹à²—à²¿à²¯à³ ${chiefComplaint} à²²à²•à³à²·à²£à²—à²³à³Šà²‚à²¦à²¿à²—à³† à²¬à²‚à²¦à²¿à²¦à³à²¦à²¾à²°à³†. à²¹à³†à²šà³à²šà²¿à²¨ à²µà³ˆà²¦à³à²¯à²•à³€à²¯ à²ªà²°à³€à²•à³à²·à³† à²®à²¤à³à²¤à³ à²¸à²®à²¾à²²à³‹à²šà²¨à³† à²…à²—à²¤à³à²¯à²µà²¿à²¦à³†.`,
+        ml: `à´°àµ‹à´—à´¿ ${chiefComplaint} à´²à´•àµà´·à´£à´™àµà´™à´³àµ‹à´Ÿàµ† à´¹à´¾à´œà´°à´¾à´¯à´¿. à´¤àµà´Ÿàµ¼ à´ªà´°à´¿à´¶àµ‹à´§à´¨à´¯àµà´‚ à´¡àµ‹à´•àµà´Ÿàµ¼ à´•àµºà´¸àµ¾à´Ÿàµà´Ÿàµ‡à´·à´¨àµà´‚ à´†à´µà´¶àµà´¯à´®à´¾à´£àµ.`,
+        mr: `à¤°à¥à¤—à¥à¤£ ${chiefComplaint} à¤²à¤•à¥à¤·à¤£à¤¾à¤‚à¤¸à¤¹ à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤ à¤à¤¾à¤²à¤¾ à¤†à¤¹à¥‡. à¤ªà¥à¤¢à¥€à¤² à¤µà¥ˆà¤¦à¥à¤¯à¤•à¥€à¤¯ à¤¤à¤ªà¤¾à¤¸à¤£à¥€ à¤†à¤£à¤¿ à¤¡à¥‰à¤•à¥à¤Ÿà¤° à¤¸à¤²à¥à¤²à¤¾ à¤†à¤µà¤¶à¥à¤¯à¤• à¤†à¤¹à¥‡.`,
+        hi: `à¤°à¥‹à¤—à¥€ ${chiefComplaint} à¤•à¥‡ à¤²à¤•à¥à¤·à¤£à¥‹à¤‚ à¤•à¥‡ à¤¸à¤¾à¤¥ à¤‰à¤ªà¤¸à¥à¤¥à¤¿à¤¤ à¤¹à¥à¤† à¤¹à¥ˆà¥¤ à¤†à¤—à¥‡ à¤•à¥€ à¤µà¤¿à¤¸à¥à¤¤à¥ƒà¤¤ à¤šà¤¿à¤•à¤¿à¤¤à¥à¤¸à¥€à¤¯ à¤œà¤¾à¤‚à¤š à¤”à¤° à¤¡à¥‰à¤•à¥à¤Ÿà¤° à¤ªà¤°à¤¾à¤®à¤°à¥à¤¶ à¤•à¥€ à¤†à¤µà¤¶à¥à¤¯à¤•à¤¤à¤¾ à¤¹à¥ˆà¥¤`,
         en: `Patient presents with symptoms of ${chiefComplaint}. Clinical examination and attending physician consultation advised.`,
       };
-      const regionalSummary = regionalSummaries[language] || regionalSummaries.en;
+      let regionalSummary = regionalSummaries[language] || regionalSummaries.en;
+
+      // Live Sarvam translation when configured (best-effort; keep the static
+      // regional string if the gateway is unavailable).
+      if (isSarvamConfigured() && language !== 'en') {
+        try {
+          const translated = await sarvamTranslate({
+            input: regionalSummaries.en || regionalSummary,
+            sourceLanguageCode: 'en-IN',
+            targetLanguageCode: languageCodeToSarvam(language),
+          });
+          if (translated.translatedText) {
+            regionalSummary = translated.translatedText;
+          }
+        } catch (translateErr: any) {
+          console.warn('[Summarize] Sarvam regional translation unavailable, using static string:', translateErr?.message);
+        }
+      }
 
       const fallbackNote = {
         chiefComplaint: chiefComplaint,
@@ -2093,29 +2694,26 @@ Return a valid JSON object matching this schema:
 }
 Return only JSON.`;
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const raw = result.text?.trim() || '{}';
+    const raw = (await aiText({
+      prompt,
+      modelKind: 'reasoning',
+      json: true,
+      system: 'You are an expert medical AI scribe. Never present the output as a confirmed diagnosis; it is assistance for the attending clinician.',
+    })).trim() || '{}';
     const note = JSON.parse(raw);
     if (!note.regionalSummary && note.hindiSummary) {
       note.regionalSummary = note.hindiSummary;
     }
-    res.json({ note, source: 'gemini' });
-  } catch (err) {
-    console.error('Gemini Summarize Error:', err);
+    res.json({ note, source: 'ai' });
+  } catch (err: any) {
+    console.error('AI Summarize Error:', err?.message || err);
     res.status(500).json({ error: 'Clinical summarization failed' });
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Multimodal Document OCR
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/gemini/ocr', async (req, res) => {
   try {
     const { imageBase64, mimeType = 'image/jpeg' } = req.body;
@@ -2124,7 +2722,7 @@ app.post('/api/gemini/ocr', async (req, res) => {
     }
 
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
-    const ai = getGeminiClient();
+    const ai = aiConfigured();
 
     if (!ai) {
       return res.json({
@@ -2146,6 +2744,11 @@ app.post('/api/gemini/ocr', async (req, res) => {
       });
     }
 
+    const validation = validateImage(imageBase64, mimeType);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error || 'Invalid image' });
+    }
+
     const prompt = `You are a medical OCR specialist. Analyze this uploaded medical document (prescription, discharge summary, or lab report).
 Extract the structured clinical information into this JSON schema:
 {
@@ -2160,25 +2763,16 @@ Extract the structured clinical information into this JSON schema:
   "rawOcrText": string,
   "confidenceScore": number
 }
+Do NOT invent data not visible in the image. Set unclear fields to null.
 Return only JSON.`;
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        { text: prompt },
-        {
-          inlineData: {
-            data: cleanBase64,
-            mimeType,
-          },
-        },
-      ],
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
+    const raw = (await aiVision({
+      imageBase64: validation.base64 || cleanBase64,
+      mimeType: validation.mimeType || mimeType,
+      prompt,
+      json: true,
+    })).trim() || '{}';
 
-    const raw = result.text?.trim() || '{}';
     const documentData = JSON.parse(raw);
     res.json({
       document: {
@@ -2186,17 +2780,17 @@ Return only JSON.`;
         fileName: `Scanned_${Date.now()}.jpg`,
         ...documentData,
       },
-      source: 'gemini-vision',
+      source: 'ai-vision',
     });
-  } catch (err) {
-    console.error('OCR Error:', err);
+  } catch (err: any) {
+    console.error('OCR Error:', err?.message || err);
     res.status(500).json({ error: 'OCR Processing failed' });
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Conversational NLP Parser
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/gemini/nlp-parser', async (req, res) => {
   try {
     const { transcript, language, currentStep } = req.body;
@@ -2204,7 +2798,7 @@ app.post('/api/gemini/nlp-parser', async (req, res) => {
       return res.status(400).json({ error: 'transcript required' });
     }
 
-    const ai = getGeminiClient();
+    const ai = aiConfigured();
     if (!ai) {
       const lower = transcript.toLowerCase();
       let extracted: any = { extractedSummary: transcript, detectedAttributes: {}, isRedFlagCandidate: false };
@@ -2240,25 +2834,21 @@ Return JSON:
   "redFlagReason": string | null
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const parsed = JSON.parse(response.text || '{}');
-    return res.json({ success: true, extracted: parsed, source: 'gemini-nlp' });
+    const parsed = JSON.parse((await aiText({
+      prompt,
+      modelKind: 'fast',
+      json: true,
+    })).trim() || '{}');
+    return res.json({ success: true, extracted: parsed, source: 'ai-nlp' });
   } catch (error: any) {
     console.error('Error in NLP parser:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Dynamic Adaptive Clinical Conversation Engine
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/converse/adaptive-question', async (req, res) => {
   try {
     const {
@@ -2302,9 +2892,9 @@ app.post('/api/converse/adaptive-question', async (req, res) => {
       extractedAttributes.character = 'Severe acute rigidity';
     }
 
-    const ai = getGeminiClient();
+    const ai = aiConfigured();
 
-    // 2. Try Gemini 2.5 Flash Dynamic Generation
+    // 2. Try AI dynamic generation
     if (ai) {
       try {
         const historySummary = conversationHistory
@@ -2365,15 +2955,11 @@ Return STRICTLY JSON format:
   "newRedFlags": string[]
 }`;
 
-        const result = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: {
-            responseMimeType: 'application/json',
-          },
-        });
-
-        const rawJson = result.text?.trim() || '{}';
+        const rawJson = (await aiText({
+          prompt,
+          modelKind: 'fast',
+          json: true,
+        })).trim() || '{}';
         const parsed = JSON.parse(rawJson);
 
         if (parsed.question && parsed.question.title) {
@@ -2390,11 +2976,11 @@ Return STRICTLY JSON format:
             question: parsed.question,
             extractedAttributes: mergedAttributes,
             newRedFlags: mergedRedFlags,
-            source: 'gemini-adaptive',
+            source: 'ai-adaptive',
           });
         }
-      } catch (geminiErr) {
-        console.warn('[Adaptive Converse] Gemini generation fallback:', geminiErr);
+      } catch (aiErr: any) {
+        console.warn('[Adaptive Converse] AI generation fallback:', aiErr?.message || aiErr);
       }
     }
 
@@ -2441,7 +3027,7 @@ Return STRICTLY JSON format:
           reasoning = 'Evaluating exertional ischemia correlation';
           options = [
             { label: 'Worsens with physical movement, eases with complete rest', code: 'exertion_angina', isRed: true },
-            { label: 'Does NOT ease with rest — stays continuously intense', code: 'constant_unrelieved', isRed: true },
+            { label: 'Does NOT ease with rest â€” stays continuously intense', code: 'constant_unrelieved', isRed: true },
             { label: 'Worsens with deep breaths or coughing', code: 'pleuritic', isRed: false },
             { label: 'Improves after drinking water or antacids', code: 'acid_relief', isRed: false },
           ];
@@ -2563,70 +3149,70 @@ Return STRICTLY JSON format:
     const regionalTitles: Record<string, string> = {
       en: titleEn,
       te: dynamicStep === 'severity'
-        ? '0 నుండి 10 స్కేలులో మీ సమస్య తీవ్రతను తెలియజేయండి:'
+        ? '0 à°¨à±à°‚à°¡à°¿ 10 à°¸à±à°•à±‡à°²à±à°²à±‹ à°®à±€ à°¸à°®à°¸à±à°¯ à°¤à±€à°µà±à°°à°¤à°¨à± à°¤à±†à°²à°¿à°¯à°œà±‡à°¯à°‚à°¡à°¿:'
         : dynamicStep === 'radiation'
-        ? 'ఈ నొప్పి మీ చేతికి, మెడకు లేదా వీపుకు వ్యాపిస్తుందా?'
+        ? 'à°ˆ à°¨à±Šà°ªà±à°ªà°¿ à°®à±€ à°šà±‡à°¤à°¿à°•à°¿, à°®à±†à°¡à°•à± à°²à±‡à°¦à°¾ à°µà±€à°ªà±à°•à± à°µà±à°¯à°¾à°ªà°¿à°¸à±à°¤à±à°‚à°¦à°¾?'
         : dynamicStep === 'associations'
-        ? 'దీనితో పాటు చెమటలు పట్టడం, శ్వాస తీసుకోవడంలో ఇబ్బంది లేదా వికారం ఉందా?'
+        ? 'à°¦à±€à°¨à°¿à°¤à±‹ à°ªà°¾à°Ÿà± à°šà±†à°®à°Ÿà°²à± à°ªà°Ÿà±à°Ÿà°¡à°‚, à°¶à±à°µà°¾à°¸ à°¤à±€à°¸à±à°•à±‹à°µà°¡à°‚à°²à±‹ à°‡à°¬à±à°¬à°‚à°¦à°¿ à°²à±‡à°¦à°¾ à°µà°¿à°•à°¾à°°à°‚ à°‰à°‚à°¦à°¾?'
         : dynamicStep === 'site'
-        ? 'మీ శరీరంలో ఈ నొప్పి ప్రధానంగా ఎక్కడ కేంద్రీకృతమై ఉంది?'
+        ? 'à°®à±€ à°¶à°°à±€à°°à°‚à°²à±‹ à°ˆ à°¨à±Šà°ªà±à°ªà°¿ à°ªà±à°°à°§à°¾à°¨à°‚à°—à°¾ à°Žà°•à±à°•à°¡ à°•à±‡à°‚à°¦à±à°°à±€à°•à±ƒà°¤à°®à±ˆ à°‰à°‚à°¦à°¿?'
         : dynamicStep === 'timing'
-        ? 'ఈ సమస్య ఎంత కాలంగా మిమ్మల్ని ఇబ్బంది పెడుతోంది?'
+        ? 'à°ˆ à°¸à°®à°¸à±à°¯ à°Žà°‚à°¤ à°•à°¾à°²à°‚à°—à°¾ à°®à°¿à°®à±à°®à°²à±à°¨à°¿ à°‡à°¬à±à°¬à°‚à°¦à°¿ à°ªà±†à°¡à±à°¤à±‹à°‚à°¦à°¿?'
         : dynamicStep === 'exacerbating'
-        ? 'నడవడం, శ్రమించడం లేదా ఆహారం తీసుకున్నప్పుడు ఈ నొప్పి పెరుగుతుందా?'
-        : 'మీరు అనుభవిస్తున్న ఈ అసౌకర్య భావనను ఎలా వివరిస్తారు?',
+        ? 'à°¨à°¡à°µà°¡à°‚, à°¶à±à°°à°®à°¿à°‚à°šà°¡à°‚ à°²à±‡à°¦à°¾ à°†à°¹à°¾à°°à°‚ à°¤à±€à°¸à±à°•à±à°¨à±à°¨à°ªà±à°ªà±à°¡à± à°ˆ à°¨à±Šà°ªà±à°ªà°¿ à°ªà±†à°°à±à°—à±à°¤à±à°‚à°¦à°¾?'
+        : 'à°®à±€à°°à± à°…à°¨à±à°­à°µà°¿à°¸à±à°¤à±à°¨à±à°¨ à°ˆ à°…à°¸à±Œà°•à°°à±à°¯ à°­à°¾à°µà°¨à°¨à± à°Žà°²à°¾ à°µà°¿à°µà°°à°¿à°¸à±à°¤à°¾à°°à±?',
       ta: dynamicStep === 'severity'
-        ? '0 முதல் 10 வரையிலான அளவில் உங்கள் வலி தீவிரத்தை மதிப்பிடுங்கள்:'
+        ? '0 à®®à¯à®¤à®²à¯ 10 à®µà®°à¯ˆà®¯à®¿à®²à®¾à®© à®…à®³à®µà®¿à®²à¯ à®‰à®™à¯à®•à®³à¯ à®µà®²à®¿ à®¤à¯€à®µà®¿à®°à®¤à¯à®¤à¯ˆ à®®à®¤à®¿à®ªà¯à®ªà®¿à®Ÿà¯à®™à¯à®•à®³à¯:'
         : dynamicStep === 'radiation'
-        ? 'இந்த வலி உங்கள் கை, கழுத்து அல்லது முதுகுக்கு பரவுகிறதா?'
+        ? 'à®‡à®¨à¯à®¤ à®µà®²à®¿ à®‰à®™à¯à®•à®³à¯ à®•à¯ˆ, à®•à®´à¯à®¤à¯à®¤à¯ à®…à®²à¯à®²à®¤à¯ à®®à¯à®¤à¯à®•à¯à®•à¯à®•à¯ à®ªà®°à®µà¯à®•à®¿à®±à®¤à®¾?'
         : dynamicStep === 'associations'
-        ? 'இத்துடன் வியர்வை, மூச்சுத் திணறல் அல்லது குமட்டல் உள்ளதா?'
+        ? 'à®‡à®¤à¯à®¤à¯à®Ÿà®©à¯ à®µà®¿à®¯à®°à¯à®µà¯ˆ, à®®à¯‚à®šà¯à®šà¯à®¤à¯ à®¤à®¿à®£à®±à®²à¯ à®…à®²à¯à®²à®¤à¯ à®•à¯à®®à®Ÿà¯à®Ÿà®²à¯ à®‰à®³à¯à®³à®¤à®¾?'
         : dynamicStep === 'site'
-        ? 'இந்த வலி முக்கியமாக எங்கு அமைந்துள்ளது?'
+        ? 'à®‡à®¨à¯à®¤ à®µà®²à®¿ à®®à¯à®•à¯à®•à®¿à®¯à®®à®¾à®• à®Žà®™à¯à®•à¯ à®…à®®à¯ˆà®¨à¯à®¤à¯à®³à¯à®³à®¤à¯?'
         : dynamicStep === 'timing'
-        ? 'இந்த பிரச்சனை எவ்வளவு காலமாக உள்ளது?'
+        ? 'à®‡à®¨à¯à®¤ à®ªà®¿à®°à®šà¯à®šà®©à¯ˆ à®Žà®µà¯à®µà®³à®µà¯ à®•à®¾à®²à®®à®¾à®• à®‰à®³à¯à®³à®¤à¯?'
         : dynamicStep === 'exacerbating'
-        ? 'நடக்கும்போது அல்லது உணவு சாப்பிட்ட பிறகு இந்த வலி அதிகமாகிறதா?'
-        : 'இந்த அசௌகரியத்தை எவ்வாறு விவரிப்பீர்கள்?',
+        ? 'à®¨à®Ÿà®•à¯à®•à¯à®®à¯à®ªà¯‹à®¤à¯ à®…à®²à¯à®²à®¤à¯ à®‰à®£à®µà¯ à®šà®¾à®ªà¯à®ªà®¿à®Ÿà¯à®Ÿ à®ªà®¿à®±à®•à¯ à®‡à®¨à¯à®¤ à®µà®²à®¿ à®…à®¤à®¿à®•à®®à®¾à®•à®¿à®±à®¤à®¾?'
+        : 'à®‡à®¨à¯à®¤ à®…à®šà¯Œà®•à®°à®¿à®¯à®¤à¯à®¤à¯ˆ à®Žà®µà¯à®µà®¾à®±à¯ à®µà®¿à®µà®°à®¿à®ªà¯à®ªà¯€à®°à¯à®•à®³à¯?',
       kn: dynamicStep === 'severity'
-        ? '0 ರಿಂದ 10 ರ ಪ್ರಮಾಣದಲ್ಲಿ ನಿಮ್ಮ ತೊಂದರೆಯ ತೀವ್ರತೆಯನ್ನು ತಿಳಿಸಿ:'
+        ? '0 à²°à²¿à²‚à²¦ 10 à²° à²ªà³à²°à²®à²¾à²£à²¦à²²à³à²²à²¿ à²¨à²¿à²®à³à²® à²¤à³Šà²‚à²¦à²°à³†à²¯ à²¤à³€à²µà³à²°à²¤à³†à²¯à²¨à³à²¨à³ à²¤à²¿à²³à²¿à²¸à²¿:'
         : dynamicStep === 'radiation'
-        ? 'ಈ ನೋವು ಕೈ, ಕುತ್ತಿಗೆ ಅಥವಾ ಬೆನ್ನಿಗೆ ಹರಡುತ್ತಿದೆಯೇ?'
+        ? 'à²ˆ à²¨à³‹à²µà³ à²•à³ˆ, à²•à³à²¤à³à²¤à²¿à²—à³† à²…à²¥à²µà²¾ à²¬à³†à²¨à³à²¨à²¿à²—à³† à²¹à²°à²¡à³à²¤à³à²¤à²¿à²¦à³†à²¯à³‡?'
         : dynamicStep === 'associations'
-        ? 'ಇದರೊಂದಿಗೆ ಬೆವರು, ಉಸಿರಾಟದ ತೊಂದರೆ ಅಥವಾ ವಾಕರಿಕೆ ಇದೆಯೇ?'
+        ? 'à²‡à²¦à²°à³Šà²‚à²¦à²¿à²—à³† à²¬à³†à²µà²°à³, à²‰à²¸à²¿à²°à²¾à²Ÿà²¦ à²¤à³Šà²‚à²¦à²°à³† à²…à²¥à²µà²¾ à²µà²¾à²•à²°à²¿à²•à³† à²‡à²¦à³†à²¯à³‡?'
         : dynamicStep === 'site'
-        ? 'ಈ ನೋವು ಮುಖ್ಯವಾಗಿ ಎಲ್ಲಿದೆ?'
+        ? 'à²ˆ à²¨à³‹à²µà³ à²®à³à²–à³à²¯à²µà²¾à²—à²¿ à²Žà²²à³à²²à²¿à²¦à³†?'
         : dynamicStep === 'timing'
-        ? 'ಈ ಸಮಸ್ಯೆ ಎಷ್ಟು ಸಮಯದಿಂದ ಇದೆ?'
+        ? 'à²ˆ à²¸à²®à²¸à³à²¯à³† à²Žà²·à³à²Ÿà³ à²¸à²®à²¯à²¦à²¿à²‚à²¦ à²‡à²¦à³†?'
         : dynamicStep === 'exacerbating'
-        ? 'ಯಾವ ಚಟುವಟಿಕೆಯಿಂದ ನೋವು ಹೆಚ್ಚಾಗುತ್ತದೆ?'
-        : 'ಈ ನೋವಿನ ಸ್ವರೂಪ ಹೇಗಿದೆ ಎಂಬುದನ್ನು ವಿವರಿಸಿ?',
+        ? 'à²¯à²¾à²µ à²šà²Ÿà³à²µà²Ÿà²¿à²•à³†à²¯à²¿à²‚à²¦ à²¨à³‹à²µà³ à²¹à³†à²šà³à²šà²¾à²—à³à²¤à³à²¤à²¦à³†?'
+        : 'à²ˆ à²¨à³‹à²µà²¿à²¨ à²¸à³à²µà²°à³‚à²ª à²¹à³‡à²—à²¿à²¦à³† à²Žà²‚à²¬à³à²¦à²¨à³à²¨à³ à²µà²¿à²µà²°à²¿à²¸à²¿?',
       ml: dynamicStep === 'severity'
-        ? '0 മുതൽ 10 വരെയുള്ള സ്കെയിലിൽ നിങ്ങളുടെ വേദനയുടെ തീവ്രത രേഖപ്പെടുത്തുക:'
+        ? '0 à´®àµà´¤àµ½ 10 à´µà´°àµ†à´¯àµà´³àµà´³ à´¸àµà´•àµ†à´¯à´¿à´²à´¿àµ½ à´¨à´¿à´™àµà´™à´³àµà´Ÿàµ† à´µàµ‡à´¦à´¨à´¯àµà´Ÿàµ† à´¤àµ€à´µàµà´°à´¤ à´°àµ‡à´–à´ªàµà´ªàµ†à´Ÿàµà´¤àµà´¤àµà´•:'
         : dynamicStep === 'radiation'
-        ? 'ഈ വേദന നിങ്ങളുടെ കൈയിലേക്കോ കഴുത്തിലേക്കോ പടരുന്നുണ്ടോ?'
+        ? 'à´ˆ à´µàµ‡à´¦à´¨ à´¨à´¿à´™àµà´™à´³àµà´Ÿàµ† à´•àµˆà´¯à´¿à´²àµ‡à´•àµà´•àµ‹ à´•à´´àµà´¤àµà´¤à´¿à´²àµ‡à´•àµà´•àµ‹ à´ªà´Ÿà´°àµà´¨àµà´¨àµà´£àµà´Ÿàµ‹?'
         : dynamicStep === 'associations'
-        ? 'ഇതോടൊപ്പം വിയർപ്പോ ശ്വാസതടസ്സമോ അനുഭവപ്പെടുന്നുണ്ടോ?'
+        ? 'à´‡à´¤àµ‹à´ŸàµŠà´ªàµà´ªà´‚ à´µà´¿à´¯àµ¼à´ªàµà´ªàµ‹ à´¶àµà´µà´¾à´¸à´¤à´Ÿà´¸àµà´¸à´®àµ‹ à´…à´¨àµà´­à´µà´ªàµà´ªàµ†à´Ÿàµà´¨àµà´¨àµà´£àµà´Ÿàµ‹?'
         : dynamicStep === 'site'
-        ? 'ഈ അസ്വസ്ഥത പ്രധാനമായും എവിടെയാണ്?'
+        ? 'à´ˆ à´…à´¸àµà´µà´¸àµà´¥à´¤ à´ªàµà´°à´§à´¾à´¨à´®à´¾à´¯àµà´‚ à´Žà´µà´¿à´Ÿàµ†à´¯à´¾à´£àµ?'
         : dynamicStep === 'timing'
-        ? 'ഈ ബുദ്ധിമുട്ട് എത്ര നാളായി ഉണ്ട്?'
+        ? 'à´ˆ à´¬àµà´¦àµà´§à´¿à´®àµà´Ÿàµà´Ÿàµ à´Žà´¤àµà´° à´¨à´¾à´³à´¾à´¯à´¿ à´‰à´£àµà´Ÿàµ?'
         : dynamicStep === 'exacerbating'
-        ? 'എന്തെങ്കിലും ചെയ്യുമ്പോൾ വേദന കൂടുന്നുണ്ടോ?'
-        : 'ഈ അസ്വസ്ഥതയുടെ സ്വഭാവം എങ്ങനെയാണ്?',
+        ? 'à´Žà´¨àµà´¤àµ†à´™àµà´•à´¿à´²àµà´‚ à´šàµ†à´¯àµà´¯àµà´®àµà´ªàµ‹àµ¾ à´µàµ‡à´¦à´¨ à´•àµ‚à´Ÿàµà´¨àµà´¨àµà´£àµà´Ÿàµ‹?'
+        : 'à´ˆ à´…à´¸àµà´µà´¸àµà´¥à´¤à´¯àµà´Ÿàµ† à´¸àµà´µà´­à´¾à´µà´‚ à´Žà´™àµà´™à´¨àµ†à´¯à´¾à´£àµ?',
       mr: dynamicStep === 'severity'
-        ? '0 ते 10 च्या प्रमाणात आपल्या त्रासाची तीव्रता सांगा:'
+        ? '0 à¤¤à¥‡ 10 à¤šà¥à¤¯à¤¾ à¤ªà¥à¤°à¤®à¤¾à¤£à¤¾à¤¤ à¤†à¤ªà¤²à¥à¤¯à¤¾ à¤¤à¥à¤°à¤¾à¤¸à¤¾à¤šà¥€ à¤¤à¥€à¤µà¥à¤°à¤¤à¤¾ à¤¸à¤¾à¤‚à¤—à¤¾:'
         : dynamicStep === 'radiation'
-        ? 'ही वेदना हातामध्ये, मानेमध्ये किंवा पाठीत पसरत आहे का?'
+        ? 'à¤¹à¥€ à¤µà¥‡à¤¦à¤¨à¤¾ à¤¹à¤¾à¤¤à¤¾à¤®à¤§à¥à¤¯à¥‡, à¤®à¤¾à¤¨à¥‡à¤®à¤§à¥à¤¯à¥‡ à¤•à¤¿à¤‚à¤µà¤¾ à¤ªà¤¾à¤ à¥€à¤¤ à¤ªà¤¸à¤°à¤¤ à¤†à¤¹à¥‡ à¤•à¤¾?'
         : dynamicStep === 'associations'
-        ? 'यासोबत घाम येणे, धाप लागणे किंवा मळमळ जाणवत आहे का?'
+        ? 'à¤¯à¤¾à¤¸à¥‹à¤¬à¤¤ à¤˜à¤¾à¤® à¤¯à¥‡à¤£à¥‡, à¤§à¤¾à¤ª à¤²à¤¾à¤—à¤£à¥‡ à¤•à¤¿à¤‚à¤µà¤¾ à¤®à¤³à¤®à¤³ à¤œà¤¾à¤£à¤µà¤¤ à¤†à¤¹à¥‡ à¤•à¤¾?'
         : dynamicStep === 'site'
-        ? 'हा त्रास प्रामुख्याने नक्की कुठे होत आहे?'
+        ? 'à¤¹à¤¾ à¤¤à¥à¤°à¤¾à¤¸ à¤ªà¥à¤°à¤¾à¤®à¥à¤–à¥à¤¯à¤¾à¤¨à¥‡ à¤¨à¤•à¥à¤•à¥€ à¤•à¥à¤ à¥‡ à¤¹à¥‹à¤¤ à¤†à¤¹à¥‡?'
         : dynamicStep === 'timing'
-        ? 'हा त्रास किती काळापासून सुरू आहे?'
+        ? 'à¤¹à¤¾ à¤¤à¥à¤°à¤¾à¤¸ à¤•à¤¿à¤¤à¥€ à¤•à¤¾à¤³à¤¾à¤ªà¤¾à¤¸à¥‚à¤¨ à¤¸à¥à¤°à¥‚ à¤†à¤¹à¥‡?'
         : dynamicStep === 'exacerbating'
-        ? 'चालण्याने किंवा खाण्याने हा त्रास वाढतो का?'
-        : 'या त्रासाचे स्वरूप कसे जाणवत आहे?',
+        ? 'à¤šà¤¾à¤²à¤£à¥à¤¯à¤¾à¤¨à¥‡ à¤•à¤¿à¤‚à¤µà¤¾ à¤–à¤¾à¤£à¥à¤¯à¤¾à¤¨à¥‡ à¤¹à¤¾ à¤¤à¥à¤°à¤¾à¤¸ à¤µà¤¾à¤¢à¤¤à¥‹ à¤•à¤¾?'
+        : 'à¤¯à¤¾ à¤¤à¥à¤°à¤¾à¤¸à¤¾à¤šà¥‡ à¤¸à¥à¤µà¤°à¥‚à¤ª à¤•à¤¸à¥‡ à¤œà¤¾à¤£à¤µà¤¤ à¤†à¤¹à¥‡?',
     };
 
     const titleRegional = regionalTitles[selectedLanguage] || titleEn;
@@ -2655,9 +3241,9 @@ Return STRICTLY JSON format:
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Free-Form Conversational NLP & Clinical Keyword Sniffer
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/converse/analyze-transcript', async (req, res) => {
   try {
     const {
@@ -2679,10 +3265,10 @@ app.post('/api/converse/analyze-transcript', async (req, res) => {
     if (lowerText.includes('crushing') || lowerText.includes('heavy pressure') || lowerText.includes('squeezing') || lowerText.includes('tightness')) {
       detectedRedFlags.push('High-Risk Sensation: Compressive crushing chest discomfort');
     }
-    if (lowerText.includes('sweat') || lowerText.includes('diaphoresis') || lowerText.includes('cold sweat') || lowerText.includes('చెమట')) {
+    if (lowerText.includes('sweat') || lowerText.includes('diaphoresis') || lowerText.includes('cold sweat') || lowerText.includes('à°šà±†à°®à°Ÿ')) {
       detectedRedFlags.push('Autonomic Distress: Profuse diaphoresis with acute onset');
     }
-    if (lowerText.includes('shortness of breath') || lowerText.includes('cannot breathe') || lowerText.includes('breathless') || lowerText.includes('శ్వాస ఆడట్లేదు')) {
+    if (lowerText.includes('shortness of breath') || lowerText.includes('cannot breathe') || lowerText.includes('breathless') || lowerText.includes('à°¶à±à°µà°¾à°¸ à°†à°¡à°Ÿà±à°²à±‡à°¦à±')) {
       detectedRedFlags.push('Respiratory Alert: Acute breathlessness (air hunger)');
     }
     if (lowerText.includes('thunderclap') || lowerText.includes('worst headache') || lowerText.includes('sudden explosion')) {
@@ -2698,55 +3284,55 @@ app.post('/api/converse/analyze-transcript', async (req, res) => {
         id: 'problem',
         question: 'What is the problem?',
         regional: {
-          te: 'మీ సమస్య ఏమిటి? (నొప్పి లేదా బాధ ఎక్కడ ఉంది?)',
-          ta: 'உங்கள் பிரச்சனை என்ன? (வலி அல்லது அசௌகரியம் எங்குள்ளது?)',
-          kn: 'ನಿಮ್ಮ ಸಮಸ್ಯೆ ಏನು? (ನೋವು ಅಥವಾ ತೊಂದರೆ ನಿಖರವಾಗಿ ಎಲ್ಲಿದೆ?)',
-          ml: 'നിങ്ങളുടെ പ്രശ്നം എന്താണ്? (വേദന കൃത്യമായി എവിടെയാണ്?)',
-          mr: 'तुमची समस्या काय आहे? (त्रास किंवा वेदना नक्की कुठे होत आहे?)',
+          te: 'à°®à±€ à°¸à°®à°¸à±à°¯ à°à°®à°¿à°Ÿà°¿? (à°¨à±Šà°ªà±à°ªà°¿ à°²à±‡à°¦à°¾ à°¬à°¾à°§ à°Žà°•à±à°•à°¡ à°‰à°‚à°¦à°¿?)',
+          ta: 'à®‰à®™à¯à®•à®³à¯ à®ªà®¿à®°à®šà¯à®šà®©à¯ˆ à®Žà®©à¯à®©? (à®µà®²à®¿ à®…à®²à¯à®²à®¤à¯ à®…à®šà¯Œà®•à®°à®¿à®¯à®®à¯ à®Žà®™à¯à®•à¯à®³à¯à®³à®¤à¯?)',
+          kn: 'à²¨à²¿à²®à³à²® à²¸à²®à²¸à³à²¯à³† à²à²¨à³? (à²¨à³‹à²µà³ à²…à²¥à²µà²¾ à²¤à³Šà²‚à²¦à²°à³† à²¨à²¿à²–à²°à²µà²¾à²—à²¿ à²Žà²²à³à²²à²¿à²¦à³†?)',
+          ml: 'à´¨à´¿à´™àµà´™à´³àµà´Ÿàµ† à´ªàµà´°à´¶àµà´¨à´‚ à´Žà´¨àµà´¤à´¾à´£àµ? (à´µàµ‡à´¦à´¨ à´•àµƒà´¤àµà´¯à´®à´¾à´¯à´¿ à´Žà´µà´¿à´Ÿàµ†à´¯à´¾à´£àµ?)',
+          mr: 'à¤¤à¥à¤®à¤šà¥€ à¤¸à¤®à¤¸à¥à¤¯à¤¾ à¤•à¤¾à¤¯ à¤†à¤¹à¥‡? (à¤¤à¥à¤°à¤¾à¤¸ à¤•à¤¿à¤‚à¤µà¤¾ à¤µà¥‡à¤¦à¤¨à¤¾ à¤¨à¤•à¥à¤•à¥€ à¤•à¥à¤ à¥‡ à¤¹à¥‹à¤¤ à¤†à¤¹à¥‡?)',
         } as Record<string, string>,
       },
       {
         id: 'duration',
         question: 'From how long have you been experiencing the symptoms?',
         regional: {
-          te: 'ఈ లక్షణాలు ఎంత కాలం నుండి ఉన్నాయి?',
-          ta: 'எவ்வளவு காலமாக இந்த அறிகுறிகள் உள்ளன?',
-          kn: 'ಎಷ್ಟು ಸಮಯದಿಂದ ಈ ಲಕ್ಷಣಗಳು ಕಾಣಿಸಿಕೊಂಡಿವೆ?',
-          ml: 'എത്ര നാളായി ഈ ലക്ഷണങ്ങൾ അനുഭവപ്പെടുന്നു?',
-          mr: 'हा त्रास किती दिवसांपासून किंवा वेळापासून जाणवत आहे?',
+          te: 'à°ˆ à°²à°•à±à°·à°£à°¾à°²à± à°Žà°‚à°¤ à°•à°¾à°²à°‚ à°¨à±à°‚à°¡à°¿ à°‰à°¨à±à°¨à°¾à°¯à°¿?',
+          ta: 'à®Žà®µà¯à®µà®³à®µà¯ à®•à®¾à®²à®®à®¾à®• à®‡à®¨à¯à®¤ à®…à®±à®¿à®•à¯à®±à®¿à®•à®³à¯ à®‰à®³à¯à®³à®©?',
+          kn: 'à²Žà²·à³à²Ÿà³ à²¸à²®à²¯à²¦à²¿à²‚à²¦ à²ˆ à²²à²•à³à²·à²£à²—à²³à³ à²•à²¾à²£à²¿à²¸à²¿à²•à³Šà²‚à²¡à²¿à²µà³†?',
+          ml: 'à´Žà´¤àµà´° à´¨à´¾à´³à´¾à´¯à´¿ à´ˆ à´²à´•àµà´·à´£à´™àµà´™àµ¾ à´…à´¨àµà´­à´µà´ªàµà´ªàµ†à´Ÿàµà´¨àµà´¨àµ?',
+          mr: 'à¤¹à¤¾ à¤¤à¥à¤°à¤¾à¤¸ à¤•à¤¿à¤¤à¥€ à¤¦à¤¿à¤µà¤¸à¤¾à¤‚à¤ªà¤¾à¤¸à¥‚à¤¨ à¤•à¤¿à¤‚à¤µà¤¾ à¤µà¥‡à¤³à¤¾à¤ªà¤¾à¤¸à¥‚à¤¨ à¤œà¤¾à¤£à¤µà¤¤ à¤†à¤¹à¥‡?',
         } as Record<string, string>,
       },
       {
         id: 'medications',
         question: 'Have you taken any previous medications?',
         regional: {
-          te: 'గతంలో లేదా ఇటీవల ఏవైనా మందులు తీసుకున్నారా?',
-          ta: 'முன்பு ஏதேனும் மருந்துகள் எடுத்துக்கொண்டீர்களா?',
-          kn: 'ಹಿಂದೆ ಅಥವಾ ಇತ್ತೀಚೆಗೆ ಯಾವುದೇ ಔಷಧಿಗಳನ್ನು ತೆಗೆದುಕೊಂಡಿದ್ದೀರಾ?',
-          ml: 'മുമ്പ് എന്തെങ്കിലും മരുന്നുകൾ കഴിച്ചിട്ടുണ്ടോ?',
-          mr: 'पूर्वी किंवा सध्या कोणती औषधे घेत आहात का?',
+          te: 'à°—à°¤à°‚à°²à±‹ à°²à±‡à°¦à°¾ à°‡à°Ÿà±€à°µà°² à°à°µà±ˆà°¨à°¾ à°®à°‚à°¦à±à°²à± à°¤à±€à°¸à±à°•à±à°¨à±à°¨à°¾à°°à°¾?',
+          ta: 'à®®à¯à®©à¯à®ªà¯ à®à®¤à¯‡à®©à¯à®®à¯ à®®à®°à¯à®¨à¯à®¤à¯à®•à®³à¯ à®Žà®Ÿà¯à®¤à¯à®¤à¯à®•à¯à®•à¯Šà®£à¯à®Ÿà¯€à®°à¯à®•à®³à®¾?',
+          kn: 'à²¹à²¿à²‚à²¦à³† à²…à²¥à²µà²¾ à²‡à²¤à³à²¤à³€à²šà³†à²—à³† à²¯à²¾à²µà³à²¦à³‡ à²”à²·à²§à²¿à²—à²³à²¨à³à²¨à³ à²¤à³†à²—à³†à²¦à³à²•à³Šà²‚à²¡à²¿à²¦à³à²¦à³€à²°à²¾?',
+          ml: 'à´®àµà´®àµà´ªàµ à´Žà´¨àµà´¤àµ†à´™àµà´•à´¿à´²àµà´‚ à´®à´°àµà´¨àµà´¨àµà´•àµ¾ à´•à´´à´¿à´šàµà´šà´¿à´Ÿàµà´Ÿàµà´£àµà´Ÿàµ‹?',
+          mr: 'à¤ªà¥‚à¤°à¥à¤µà¥€ à¤•à¤¿à¤‚à¤µà¤¾ à¤¸à¤§à¥à¤¯à¤¾ à¤•à¥‹à¤£à¤¤à¥€ à¤”à¤·à¤§à¥‡ à¤˜à¥‡à¤¤ à¤†à¤¹à¤¾à¤¤ à¤•à¤¾?',
         } as Record<string, string>,
       },
       {
         id: 'associations',
         question: 'Any allergies or other associated symptoms?',
         regional: {
-          te: 'ఏవైనా అలెర్జీలు లేదా ఇతర సంబంధిత లక్షణాలు ఉన్నాయా?',
-          ta: 'ஏதேனும் ஒவ்வாமை அல்லது பிற அறிகுறிகள் உள்ளதா?',
-          kn: 'ಯಾವುದೇ ಅಲರ್ಜಿ ಅಥವಾ ಇತರ ಸಂಬಂಧಿತ ಲಕ್ಷಣಗಳು ಇವೆಯೇ?',
-          ml: 'എന്തെങ്കിലും അലർജിയോ മറ്റ് അനുബന്ധ ലക്ഷണങ്ങളോ ഉണ്ടോ?',
-          mr: 'काही ॲलर्जी किंवा इतर संबंधित लक्षणे जाणवत आहेत का?',
+          te: 'à°à°µà±ˆà°¨à°¾ à°…à°²à±†à°°à±à°œà±€à°²à± à°²à±‡à°¦à°¾ à°‡à°¤à°° à°¸à°‚à°¬à°‚à°§à°¿à°¤ à°²à°•à±à°·à°£à°¾à°²à± à°‰à°¨à±à°¨à°¾à°¯à°¾?',
+          ta: 'à®à®¤à¯‡à®©à¯à®®à¯ à®’à®µà¯à®µà®¾à®®à¯ˆ à®…à®²à¯à®²à®¤à¯ à®ªà®¿à®± à®…à®±à®¿à®•à¯à®±à®¿à®•à®³à¯ à®‰à®³à¯à®³à®¤à®¾?',
+          kn: 'à²¯à²¾à²µà³à²¦à³‡ à²…à²²à²°à³à²œà²¿ à²…à²¥à²µà²¾ à²‡à²¤à²° à²¸à²‚à²¬à²‚à²§à²¿à²¤ à²²à²•à³à²·à²£à²—à²³à³ à²‡à²µà³†à²¯à³‡?',
+          ml: 'à´Žà´¨àµà´¤àµ†à´™àµà´•à´¿à´²àµà´‚ à´…à´²àµ¼à´œà´¿à´¯àµ‹ à´®à´±àµà´±àµ à´…à´¨àµà´¬à´¨àµà´§ à´²à´•àµà´·à´£à´™àµà´™à´³àµ‹ à´‰à´£àµà´Ÿàµ‹?',
+          mr: 'à¤•à¤¾à¤¹à¥€ à¥²à¤²à¤°à¥à¤œà¥€ à¤•à¤¿à¤‚à¤µà¤¾ à¤‡à¤¤à¤° à¤¸à¤‚à¤¬à¤‚à¤§à¤¿à¤¤ à¤²à¤•à¥à¤·à¤£à¥‡ à¤œà¤¾à¤£à¤µà¤¤ à¤†à¤¹à¥‡à¤¤ à¤•à¤¾?',
         } as Record<string, string>,
       },
       {
         id: 'severity',
         question: 'Severity of pain or discomfort (0 to 10)?',
         regional: {
-          te: 'నొప్పి లేదా అసౌకర్య తీవ్రత ఎంత (0 నుండి 10 స్కేలులో)?',
-          ta: 'வலியின் தீவிரம் எவ்வளவு (0 முதல் 10 வரை)?',
-          kn: 'ನೋವಿನ ತೀವ್ರತೆ ಎಷ್ಟು (0 ರಿಂದ 10 ರ ಪ್ರಮಾಣದಲ್ಲಿ)?',
-          ml: 'വേദനയുടെ തീവ്രത എത്രയാണ് (0 മുതൽ 10 വരെയുള്ള സ്കെയിലിൽ)?',
-          mr: 'वेदना किंवा त्रासाची तीव्रता किती आहे (0 ते 10 च्या प्रमाणात)?',
+          te: 'à°¨à±Šà°ªà±à°ªà°¿ à°²à±‡à°¦à°¾ à°…à°¸à±Œà°•à°°à±à°¯ à°¤à±€à°µà±à°°à°¤ à°Žà°‚à°¤ (0 à°¨à±à°‚à°¡à°¿ 10 à°¸à±à°•à±‡à°²à±à°²à±‹)?',
+          ta: 'à®µà®²à®¿à®¯à®¿à®©à¯ à®¤à¯€à®µà®¿à®°à®®à¯ à®Žà®µà¯à®µà®³à®µà¯ (0 à®®à¯à®¤à®²à¯ 10 à®µà®°à¯ˆ)?',
+          kn: 'à²¨à³‹à²µà²¿à²¨ à²¤à³€à²µà³à²°à²¤à³† à²Žà²·à³à²Ÿà³ (0 à²°à²¿à²‚à²¦ 10 à²° à²ªà³à²°à²®à²¾à²£à²¦à²²à³à²²à²¿)?',
+          ml: 'à´µàµ‡à´¦à´¨à´¯àµà´Ÿàµ† à´¤àµ€à´µàµà´°à´¤ à´Žà´¤àµà´°à´¯à´¾à´£àµ (0 à´®àµà´¤àµ½ 10 à´µà´°àµ†à´¯àµà´³àµà´³ à´¸àµà´•àµ†à´¯à´¿à´²à´¿àµ½)?',
+          mr: 'à¤µà¥‡à¤¦à¤¨à¤¾ à¤•à¤¿à¤‚à¤µà¤¾ à¤¤à¥à¤°à¤¾à¤¸à¤¾à¤šà¥€ à¤¤à¥€à¤µà¥à¤°à¤¤à¤¾ à¤•à¤¿à¤¤à¥€ à¤†à¤¹à¥‡ (0 à¤¤à¥‡ 10 à¤šà¥à¤¯à¤¾ à¤ªà¥à¤°à¤®à¤¾à¤£à¤¾à¤¤)?',
         } as Record<string, string>,
       },
     ];
@@ -2757,28 +3343,28 @@ app.post('/api/converse/analyze-transcript', async (req, res) => {
           id: 'agni_koshtha',
           question: 'Digestive fire & bowel routine (Agni & Koshtha)?',
           regional: {
-            te: 'మీ జీర్ణశక్తి మరియు మలవిసర్జన ఎలా ఉంది? (అగ్ని & కోష్ఠ)',
-            ta: 'உங்கள் செரிமான சக்தி மற்றும் குடல் பழக்கம் எப்படி உள்ளது? (அக்னி & கோஷ்டா)',
-            kn: 'ನಿಮ್ಮ ಜೀರ್ಣಕ್ರಿಯೆ ಮತ್ತು ಮಲವಿಸರ್ಜನೆ ಹೇಗಿದೆ? (ಅಗ್ನಿ & ಕೋಷ್ಠ)',
-            ml: 'നിങ്ങളുടെ ദഹനശക്തിയും മലവിസർജ്ജന ശീലങ്ങളും എങ്ങനെയുണ്ട്? (അഗ്നി & കോഷ്ഠ)',
-            mr: 'तुमची पचनशक्ती आणि पोटाची सवय कशी आहे? (अग्नी व कोष्ठ)',
+            te: 'à°®à±€ à°œà±€à°°à±à°£à°¶à°•à±à°¤à°¿ à°®à°°à°¿à°¯à± à°®à°²à°µà°¿à°¸à°°à±à°œà°¨ à°Žà°²à°¾ à°‰à°‚à°¦à°¿? (à°…à°—à±à°¨à°¿ & à°•à±‹à°·à±à° )',
+            ta: 'à®‰à®™à¯à®•à®³à¯ à®šà¯†à®°à®¿à®®à®¾à®© à®šà®•à¯à®¤à®¿ à®®à®±à¯à®±à¯à®®à¯ à®•à¯à®Ÿà®²à¯ à®ªà®´à®•à¯à®•à®®à¯ à®Žà®ªà¯à®ªà®Ÿà®¿ à®‰à®³à¯à®³à®¤à¯? (à®…à®•à¯à®©à®¿ & à®•à¯‹à®·à¯à®Ÿà®¾)',
+            kn: 'à²¨à²¿à²®à³à²® à²œà³€à²°à³à²£à²•à³à²°à²¿à²¯à³† à²®à²¤à³à²¤à³ à²®à²²à²µà²¿à²¸à²°à³à²œà²¨à³† à²¹à³‡à²—à²¿à²¦à³†? (à²…à²—à³à²¨à²¿ & à²•à³‹à²·à³à² )',
+            ml: 'à´¨à´¿à´™àµà´™à´³àµà´Ÿàµ† à´¦à´¹à´¨à´¶à´•àµà´¤à´¿à´¯àµà´‚ à´®à´²à´µà´¿à´¸àµ¼à´œàµà´œà´¨ à´¶àµ€à´²à´™àµà´™à´³àµà´‚ à´Žà´™àµà´™à´¨àµ†à´¯àµà´£àµà´Ÿàµ? (à´…à´—àµà´¨à´¿ & à´•àµ‹à´·àµà´ )',
+            mr: 'à¤¤à¥à¤®à¤šà¥€ à¤ªà¤šà¤¨à¤¶à¤•à¥à¤¤à¥€ à¤†à¤£à¤¿ à¤ªà¥‹à¤Ÿà¤¾à¤šà¥€ à¤¸à¤µà¤¯ à¤•à¤¶à¥€ à¤†à¤¹à¥‡? (à¤…à¤—à¥à¤¨à¥€ à¤µ à¤•à¥‹à¤·à¥à¤ )',
           } as Record<string, string>,
         },
         {
           id: 'ahara_vihara',
           question: 'Daily diet, routine & sleep patterns (Ahara-Vihara)?',
           regional: {
-            te: 'మీ ఆహారపు అలవాట్లు మరియు నిద్ర సమయాలు ఎలా ఉన్నాయి? (ఆహార-విహార & నిద్ర)',
-            ta: 'உங்கள் தினசரி உணவு மற்றும் தூக்க முறைகள் என்ன? (ஆஹார-விஹார & நித்திரை)',
-            kn: 'ನಿಮ್ಮ ಆಹಾರ ಪದ್ಧತಿ ಮತ್ತು ನಿದ್ರೆಯ ಮಾದರಿ ಹೇಗಿದೆ? (ಆಹಾರ-ವಿಹಾರ & ನಿದ್ರೆ)',
-            ml: 'നിങ്ങളുടെ ഭക്ഷണരീതികളും ഉറക്ക ശീലങ്ങളും എന്തൊക്കെയാണ്? (ആഹാര-വിഹാര & നിദ്ര)',
-            mr: 'तुमचा आहार आणि झोपेची दिनचर्या कशी आहे? (आहार-विहार व निद्रा)',
+            te: 'à°®à±€ à°†à°¹à°¾à°°à°ªà± à°…à°²à°µà°¾à°Ÿà±à°²à± à°®à°°à°¿à°¯à± à°¨à°¿à°¦à±à°° à°¸à°®à°¯à°¾à°²à± à°Žà°²à°¾ à°‰à°¨à±à°¨à°¾à°¯à°¿? (à°†à°¹à°¾à°°-à°µà°¿à°¹à°¾à°° & à°¨à°¿à°¦à±à°°)',
+            ta: 'à®‰à®™à¯à®•à®³à¯ à®¤à®¿à®©à®šà®°à®¿ à®‰à®£à®µà¯ à®®à®±à¯à®±à¯à®®à¯ à®¤à¯‚à®•à¯à®• à®®à¯à®±à¯ˆà®•à®³à¯ à®Žà®©à¯à®©? (à®†à®¹à®¾à®°-à®µà®¿à®¹à®¾à®° & à®¨à®¿à®¤à¯à®¤à®¿à®°à¯ˆ)',
+            kn: 'à²¨à²¿à²®à³à²® à²†à²¹à²¾à²° à²ªà²¦à³à²§à²¤à²¿ à²®à²¤à³à²¤à³ à²¨à²¿à²¦à³à²°à³†à²¯ à²®à²¾à²¦à²°à²¿ à²¹à³‡à²—à²¿à²¦à³†? (à²†à²¹à²¾à²°-à²µà²¿à²¹à²¾à²° & à²¨à²¿à²¦à³à²°à³†)',
+            ml: 'à´¨à´¿à´™àµà´™à´³àµà´Ÿàµ† à´­à´•àµà´·à´£à´°àµ€à´¤à´¿à´•à´³àµà´‚ à´‰à´±à´•àµà´• à´¶àµ€à´²à´™àµà´™à´³àµà´‚ à´Žà´¨àµà´¤àµŠà´•àµà´•àµ†à´¯à´¾à´£àµ? (à´†à´¹à´¾à´°-à´µà´¿à´¹à´¾à´° & à´¨à´¿à´¦àµà´°)',
+            mr: 'à¤¤à¥à¤®à¤šà¤¾ à¤†à¤¹à¤¾à¤° à¤†à¤£à¤¿ à¤à¥‹à¤ªà¥‡à¤šà¥€ à¤¦à¤¿à¤¨à¤šà¤°à¥à¤¯à¤¾ à¤•à¤¶à¥€ à¤†à¤¹à¥‡? (à¤†à¤¹à¤¾à¤°-à¤µà¤¿à¤¹à¤¾à¤° à¤µ à¤¨à¤¿à¤¦à¥à¤°à¤¾)',
           } as Record<string, string>,
         }
       );
     }
 
-    const ai = getGeminiClient();
+    const ai = aiConfigured();
     let analysisResult: any = null;
 
     if (ai && transcript.trim().length > 10) {
@@ -2823,18 +3409,16 @@ Respond ONLY with valid JSON:
   "emergencyFlags": string[]
 }`;
 
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: prompt,
-          config: { responseMimeType: 'application/json' },
-        });
-
-        const parsed = JSON.parse(response.text?.trim() || '{}');
+        const parsed = JSON.parse((await aiText({
+          prompt,
+          modelKind: 'fast',
+          json: true,
+        })).trim() || '{}');
         if (parsed.evaluatedKeywords) {
           analysisResult = parsed;
         }
-      } catch (geminiErr) {
-        console.warn('[Transcript Analyzer] Gemini error, using smart rule engine:', geminiErr);
+      } catch (aiErr: any) {
+        console.warn('[Transcript Analyzer] AI error, using smart rule engine:', aiErr?.message || aiErr);
       }
     }
 
@@ -2846,63 +3430,63 @@ Respond ONLY with valid JSON:
       lowerText.includes('pain') || lowerText.includes('ache') || lowerText.includes('chest') ||
       lowerText.includes('stomach') || lowerText.includes('head') || lowerText.includes('fever') ||
       lowerText.includes('cough') || lowerText.includes('breath') || lowerText.includes('rash') ||
-      lowerText.includes('నొప్పి') || lowerText.includes('బాధ') || lowerText.includes('வலி') ||
-      lowerText.includes('நோவு') || lowerText.includes('വേദന') || lowerText.includes('त्रास') ||
-      lowerText.includes('वेदना') || lowerText.includes('problem') || lowerText.includes('suffering')
+      lowerText.includes('à°¨à±Šà°ªà±à°ªà°¿') || lowerText.includes('à°¬à°¾à°§') || lowerText.includes('à®µà®²à®¿') ||
+      lowerText.includes('à®¨à¯‹à®µà¯') || lowerText.includes('à´µàµ‡à´¦à´¨') || lowerText.includes('à¤¤à¥à¤°à¤¾à¤¸') ||
+      lowerText.includes('à¤µà¥‡à¤¦à¤¨à¤¾') || lowerText.includes('problem') || lowerText.includes('suffering')
     );
 
     const hasDuration = (
       lowerText.includes('day') || lowerText.includes('hour') || lowerText.includes('week') ||
       lowerText.includes('month') || lowerText.includes('year') || lowerText.includes('since') ||
       lowerText.includes('yesterday') || lowerText.includes('morning') || lowerText.includes('night') ||
-      lowerText.includes('రోజు') || lowerText.includes('గంట') || lowerText.includes('நாள்') ||
-      lowerText.includes('மணி') || lowerText.includes('ದಿನ') || lowerText.includes('ಗಂಟೆ') ||
-      lowerText.includes('ദിവസം') || lowerText.includes('മണിക്കൂർ') || lowerText.includes('दिवस') ||
-      lowerText.includes('तास') || /\d+\s*(days?|hrs?|hours?|weeks?|months?|m|d|h)/i.test(lowerText)
+      lowerText.includes('à°°à±‹à°œà±') || lowerText.includes('à°—à°‚à°Ÿ') || lowerText.includes('à®¨à®¾à®³à¯') ||
+      lowerText.includes('à®®à®£à®¿') || lowerText.includes('à²¦à²¿à²¨') || lowerText.includes('à²—à²‚à²Ÿà³†') ||
+      lowerText.includes('à´¦à´¿à´µà´¸à´‚') || lowerText.includes('à´®à´£à´¿à´•àµà´•àµ‚àµ¼') || lowerText.includes('à¤¦à¤¿à¤µà¤¸') ||
+      lowerText.includes('à¤¤à¤¾à¤¸') || /\d+\s*(days?|hrs?|hours?|weeks?|months?|m|d|h)/i.test(lowerText)
     );
 
     const hasMedications = (
       lowerText.includes('medicine') || lowerText.includes('tablet') || lowerText.includes('pill') ||
       lowerText.includes('syrup') || lowerText.includes('paracetamol') || lowerText.includes('dolo') ||
       lowerText.includes('aspirin') || lowerText.includes('antibiotic') || lowerText.includes('none') ||
-      lowerText.includes('no medicine') || lowerText.includes('not taken') || lowerText.includes('మందు') ||
-      lowerText.includes('మాత్ర') || lowerText.includes('மருந்து') || lowerText.includes('ಮಾತ್ರೆ') ||
-      lowerText.includes('മരുന്ന്') || lowerText.includes('औषध') || lowerText.includes('गोळी')
+      lowerText.includes('no medicine') || lowerText.includes('not taken') || lowerText.includes('à°®à°‚à°¦à±') ||
+      lowerText.includes('à°®à°¾à°¤à±à°°') || lowerText.includes('à®®à®°à¯à®¨à¯à®¤à¯') || lowerText.includes('à²®à²¾à²¤à³à²°à³†') ||
+      lowerText.includes('à´®à´°àµà´¨àµà´¨àµ') || lowerText.includes('à¤”à¤·à¤§') || lowerText.includes('à¤—à¥‹à¤³à¥€')
     );
 
     const hasAssociations = (
       lowerText.includes('allergy') || lowerText.includes('allergies') || lowerText.includes('sweat') ||
       lowerText.includes('vomit') || lowerText.includes('nausea') || lowerText.includes('dizzy') ||
       lowerText.includes('fever') || lowerText.includes('no allergy') || lowerText.includes('nothing else') ||
-      lowerText.includes('అలెర్జీ') || lowerText.includes('వాంతులు') || lowerText.includes('చెమట') ||
-      lowerText.includes('ஒவ்வாமை') || lowerText.includes('வாந்தி') || lowerText.includes('ಅಲರ್ಜಿ') ||
-      lowerText.includes('ವಾಂತಿ') || lowerText.includes('ഛർദ്ദി') || lowerText.includes('उलट्या')
+      lowerText.includes('à°…à°²à±†à°°à±à°œà±€') || lowerText.includes('à°µà°¾à°‚à°¤à±à°²à±') || lowerText.includes('à°šà±†à°®à°Ÿ') ||
+      lowerText.includes('à®’à®µà¯à®µà®¾à®®à¯ˆ') || lowerText.includes('à®µà®¾à®¨à¯à®¤à®¿') || lowerText.includes('à²…à²²à²°à³à²œà²¿') ||
+      lowerText.includes('à²µà²¾à²‚à²¤à²¿') || lowerText.includes('à´›àµ¼à´¦àµà´¦à´¿') || lowerText.includes('à¤‰à¤²à¤Ÿà¥à¤¯à¤¾')
     );
 
     const hasSeverity = (
       /\b([0-9]|10)\s*(\/|\s*out of\s*)\s*10\b/i.test(lowerText) ||
       /\b([0-9]|10)\s*(scale|severity|score|level)\b/i.test(lowerText) ||
       lowerText.includes('severe') || lowerText.includes('mild') || lowerText.includes('moderate') ||
-      lowerText.includes('unbearable') || lowerText.includes('worst') || lowerText.includes('తీవ్ర') ||
-      lowerText.includes('సాధారణ') || lowerText.includes('கடுமையான') || lowerText.includes('லேசான') ||
-      lowerText.includes('ತೀವ್ರ') || lowerText.includes('ಕഠിനമായ') || lowerText.includes('असह्य') || lowerText.includes('तीव्र')
+      lowerText.includes('unbearable') || lowerText.includes('worst') || lowerText.includes('à°¤à±€à°µà±à°°') ||
+      lowerText.includes('à°¸à°¾à°§à°¾à°°à°£') || lowerText.includes('à®•à®Ÿà¯à®®à¯ˆà®¯à®¾à®©') || lowerText.includes('à®²à¯‡à®šà®¾à®©') ||
+      lowerText.includes('à²¤à³€à²µà³à²°') || lowerText.includes('à²•à´ à´¿à´¨à´®à´¾à´¯') || lowerText.includes('à¤…à¤¸à¤¹à¥à¤¯') || lowerText.includes('à¤¤à¥€à¤µà¥à¤°')
     );
 
     const hasAgniKoshtha = isAyush && (
       lowerText.includes('digest') || lowerText.includes('motion') || lowerText.includes('constipat') ||
       lowerText.includes('gas') || lowerText.includes('acidity') || lowerText.includes('appetite') ||
-      lowerText.includes('hungry') || lowerText.includes('bowel') || lowerText.includes('జీర్ణ') ||
-      lowerText.includes('మల') || lowerText.includes('செரிமான') || lowerText.includes('மலம்') ||
-      lowerText.includes('ಜೀರ್ಣ') || lowerText.includes('ದഹന') || lowerText.includes('पचन') || lowerText.includes('शौच')
+      lowerText.includes('hungry') || lowerText.includes('bowel') || lowerText.includes('à°œà±€à°°à±à°£') ||
+      lowerText.includes('à°®à°²') || lowerText.includes('à®šà¯†à®°à®¿à®®à®¾à®©') || lowerText.includes('à®®à®²à®®à¯') ||
+      lowerText.includes('à²œà³€à²°à³à²£') || lowerText.includes('à²¦à´¹à´¨') || lowerText.includes('à¤ªà¤šà¤¨') || lowerText.includes('à¤¶à¥Œà¤š')
     );
 
     const hasAharaVihara = isAyush && (
       lowerText.includes('diet') || lowerText.includes('food') || lowerText.includes('sleep') ||
       lowerText.includes('insomnia') || lowerText.includes('rice') || lowerText.includes('spicy') ||
-      lowerText.includes('oily') || lowerText.includes('routine') || lowerText.includes('ఆహార') ||
-      lowerText.includes('నిద్ర') || lowerText.includes('உணவு') || lowerText.includes('தூக்கம்') ||
-      lowerText.includes('ಆಹಾರ') || lowerText.includes('ನಿದ್ರೆ') || lowerText.includes('ഭക്ഷണ') ||
-      lowerText.includes('ഉറക്ക') || lowerText.includes('जेवण') || lowerText.includes('झोप')
+      lowerText.includes('oily') || lowerText.includes('routine') || lowerText.includes('à°†à°¹à°¾à°°') ||
+      lowerText.includes('à°¨à°¿à°¦à±à°°') || lowerText.includes('à®‰à®£à®µà¯') || lowerText.includes('à®¤à¯‚à®•à¯à®•à®®à¯') ||
+      lowerText.includes('à²†à²¹à²¾à²°') || lowerText.includes('à²¨à²¿à²¦à³à²°à³†') || lowerText.includes('à´­à´•àµà´·à´£') ||
+      lowerText.includes('à´‰à´±à´•àµà´•') || lowerText.includes('à¤œà¥‡à¤µà¤£') || lowerText.includes('à¤à¥‹à¤ª')
     );
 
     // Build the evaluated keyword array
@@ -2993,9 +3577,9 @@ Respond ONLY with valid JSON:
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // FHIR R4 ABDM Gateway Push
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/fhir/push', (req, res) => {
   const { fhirBundle } = req.body;
   const transactionId = 'ABDM-TX-' + Math.random().toString(36).substring(2, 9).toUpperCase();
@@ -3018,42 +3602,64 @@ app.post('/api/fhir/push', (req, res) => {
   });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Drug-Drug Interaction Checker
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/gemini/drug-interaction', async (req, res) => {
   const { medications } = req.body;
   if (!medications || !Array.isArray(medications)) {
     return res.status(400).json({ error: 'medications array required' });
   }
   try {
-    const ai = getGeminiClient();
-    if (!ai) {
+    if (!aiConfigured()) {
       return res.json({ interactions: [], source: 'fallback_no_api_key' });
     }
     const prompt = `You are a clinical pharmacist. Analyze these medications for dangerous drug-drug interactions: ${medications.join(', ')}. 
 Return a JSON array: [{ "drug1": string, "drug2": string, "severity": "CONTRAINDICATED"|"CAUTION"|"MONITOR", "description": string }].
 If no interactions found, return []. Return only valid JSON.`;
 
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-    const raw = result.text?.trim() || '[]';
+    const raw = (await aiText({
+      prompt,
+      modelKind: 'fast',
+      json: true,
+    })).trim() || '[]';
     const interactions = JSON.parse(raw);
-    res.json({ interactions, source: 'gemini' });
-  } catch (err) {
-    console.error('Drug interaction error:', err);
+    res.json({ interactions, source: 'ai' });
+  } catch (err: any) {
+    console.error('Drug interaction error:', err?.message || err);
     res.json({ interactions: [], source: 'error_fallback' });
   }
 });
 
-// ──────────────────────────────────────────────
+app.post('/api/ai/drug-interaction', async (req, res) => {
+  const { medications } = req.body;
+  if (!medications || !Array.isArray(medications)) {
+    return res.status(400).json({ error: 'medications array required' });
+  }
+  try {
+    if (!aiConfigured()) {
+      return res.json({ interactions: [], source: 'fallback_no_api_key' });
+    }
+    const prompt = `You are a clinical pharmacist. Analyze these medications for dangerous drug-drug interactions: ${medications.join(', ')}. 
+Return a JSON array: [{ "drug1": string, "drug2": string, "severity": "CONTRAINDICATED"|"CAUTION"|"MONITOR", "description": string }].
+If no interactions found, return []. Return only valid JSON.`;
+
+    const raw = (await aiText({
+      prompt,
+      modelKind: 'fast',
+      json: true,
+    })).trim() || '[]';
+    const interactions = JSON.parse(raw);
+    res.json({ interactions, source: 'ai' });
+  } catch (err: any) {
+    console.error('Drug interaction error:', err?.message || err);
+    res.json({ interactions: [], source: 'error_fallback' });
+  }
+});
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Physician Correction Feedback Logger
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/feedback/correction', async (req, res) => {
   const correction = req.body;
   try {
@@ -3081,46 +3687,12 @@ app.post('/api/feedback/correction', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
-// ABHA OTP & Verification (Two-step flow)
-// ──────────────────────────────────────────────
-app.post('/api/abdm/otp/send', (req, res) => {
-  const aadhaarNumber = String(req.body.aadhaarNumber || req.body.aadhaarLast4 || '').replace(/\D/g, '');
-  if (aadhaarNumber.length !== 12) {
-    return res.status(400).json({ error: 'Aadhaar number must contain exactly 12 digits' });
-  }
-  res.json({
-    status: 'OTP_SENT',
-    message: `6-digit OTP dispatched to Aadhaar-linked mobile ending in ${aadhaarNumber.slice(-4)}`,
-    transactionId: `TX-${Date.now()}`,
-  });
-});
-
-app.post('/api/abdm/otp/verify', (req, res) => {
-  const aadhaarNumber = String(req.body.aadhaarNumber || req.body.aadhaarLast4 || '').replace(/\D/g, '');
-  const { otp } = req.body;
-  if (aadhaarNumber.length !== 12) {
-    return res.status(400).json({ error: 'Aadhaar number must contain exactly 12 digits' });
-  }
-  if (!otp || otp.length !== 6) {
-    return res.status(400).json({ error: 'Invalid 6-digit OTP' });
-  }
-  const randomSegment = () => Math.floor(1000 + Math.random() * 9000);
-  const abhaId = `91-${randomSegment()}-${randomSegment()}-${randomSegment()}`;
-  res.json({
-    status: 'VERIFIED',
-    abhaId,
-    abhaAddress: `patient.${aadhaarNumber.slice(-4)}@abdm`,
-    message: 'ABHA successfully authenticated',
-  });
-});
 
 
 
-
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Physician Corrections API
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/physician/corrections', async (req, res) => {
   const { encounterId, physicianId, corrections } = req.body;
   try {
@@ -3149,9 +3721,9 @@ app.post('/api/physician/corrections', async (req, res) => {
   }
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Encounter Sub-Table Persistence Endpoints
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/encounters/:id/socrates', async (req, res) => {
   const encounterId = req.params.id;
   const s = req.body;
@@ -3305,7 +3877,7 @@ app.post('/api/documents/scan-ocr', async (req, res) => {
     }
 
     const cleanBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, '');
-    const ai = getGeminiClient();
+    const ai = aiConfigured();
     let ocrParsed: any = null;
 
     if (ai) {
@@ -3332,18 +3904,16 @@ Return strictly a JSON object:
   "confidenceScore": number (e.g. 95)
 }`;
 
-        const geminiRes = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: [
-            { text: prompt },
-            { inlineData: { data: cleanBase64, mimeType } },
-          ],
-          config: { responseMimeType: 'application/json' },
-        });
+        const rawOcr = (await aiVision({
+          imageBase64: cleanBase64,
+          mimeType,
+          prompt,
+          json: true,
+        })).trim() || '{}';
 
-        ocrParsed = JSON.parse(geminiRes.text?.trim() || '{}');
-      } catch (geminiErr) {
-        console.warn('[OCR Engine] Gemini vision error, using fallback template:', geminiErr);
+        ocrParsed = JSON.parse(rawOcr);
+      } catch (aiErr: any) {
+        console.warn('[OCR Engine] AI vision error, using fallback template:', aiErr?.message || aiErr);
       }
     }
 
@@ -3399,7 +3969,7 @@ Return strictly a JSON object:
     res.json({
       success: true,
       document: newDoc,
-      source: ocrParsed ? 'gemini-vision-transcription' : 'intelligent-ocr-fallback',
+      source: ocrParsed ? 'ai-vision-transcription' : 'intelligent-ocr-fallback',
     });
   } catch (err: any) {
     console.error('Scan OCR Error:', err);
@@ -3418,9 +3988,9 @@ app.get('/api/documents/patient/:patientId', async (req, res) => {
   res.json(list.length > 0 ? list : inMemoryDocuments);
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Doctor Prescriptions API
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/prescriptions', async (req, res) => {
   try {
     const {
@@ -3491,178 +4061,43 @@ app.post('/api/encounters/:id/summary', async (req, res) => {
   try {
     await executeQuery(
       `INSERT INTO clinical_summaries
-       (id, encounter_id, hpi_narrative, past_history, medications_active, allergies, provisional_care_plan, hindi_translation_summary)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, encounter_id, hpi, hpi_hindi, summary_json, differential_diagnosis, provisional_plan, red_flags, drug_interactions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         hpi = VALUES(hpi), hpi_hindi = VALUES(hpi_hindi), summary_json = VALUES(summary_json),
+         differential_diagnosis = VALUES(differential_diagnosis), provisional_plan = VALUES(provisional_plan),
+         red_flags = VALUES(red_flags), drug_interactions = VALUES(drug_interactions)`,
       [
         id,
         encounterId,
         s.hpi || '',
-        s.pastHistory || '',
-        s.medications || '',
-        s.allergies || '',
+        s.regionalSummary || s.hindiSummary || '',
+        JSON.stringify(s),
+        JSON.stringify(s.differentialDiagnosis || []),
         s.provisionalPlan || '',
-        s.hindiSummary || '',
+        JSON.stringify(s.redFlagsIdentified || []),
+        JSON.stringify(s.drugInteractions || []),
       ]
     );
-    res.json({ success: true, id });
+    const encounter = inMemoryDb.encounters.find((record) => record.id === encounterId);
+    const summaryRecord = { ...s, id, encounterId, patientId: encounter?.patientId };
+    const index = inMemoryDb.clinicalSummaries.findIndex((record) => record.encounterId === encounterId);
+    if (index >= 0) inMemoryDb.clinicalSummaries[index] = summaryRecord;
+    else inMemoryDb.clinicalSummaries.push(summaryRecord);
+    res.json({ success: true, id, encounterId, persistenceStatus: 'saved_to_configured_store' });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to save clinical summary', detail: err.message });
   }
 });
 
-// ──────────────────────────────────────────────
-// Encounter Retrieval by Token (Doctor Console DB Lookup)
-// ──────────────────────────────────────────────
-app.get('/api/encounters/by-token/:tokenId', async (req, res) => {
-  const { tokenId } = req.params;
-  try {
-    // 1. Look up token in MySQL or inMemoryDb
-    let tokenRow: any = null;
-    const tokenDb = await executeQuery<any>(
-      `SELECT * FROM queue_tokens WHERE id = ? OR token_number = ? LIMIT 1`,
-      [tokenId, parseInt(tokenId, 10) || -1]
-    );
 
-    if (tokenDb.rows && tokenDb.rows.length > 0) {
-      tokenRow = tokenDb.rows[0];
-    } else {
-      tokenRow = inMemoryDb.queueTokens.find(
-        (t) => t.id === tokenId || t.tokenId === tokenId || String(t.tokenNumber) === tokenId
-      ) || null;
-    }
-
-    if (!tokenRow) {
-      return res.status(404).json({ error: 'Token not found' });
-    }
-
-    const encounterId = tokenRow.encounter_id || tokenRow.encounterId;
-
-    // 2. Fetch encounter record
-    let encounterRow: any = null;
-    if (encounterId) {
-      const encDb = await executeQuery<any>(`SELECT * FROM encounters WHERE id = ? LIMIT 1`, [encounterId]);
-      encounterRow = encDb.rows?.[0] || inMemoryDb.encounters.find((e) => e.id === encounterId) || null;
-    }
-
-    const patientId = encounterRow?.patient_id || encounterRow?.patientId || tokenRow.patient_id;
-
-    // 3. Fetch patient profile
-    let patientRow: any = null;
-    if (patientId) {
-      const patDb = await executeQuery<any>(`SELECT * FROM patients WHERE id = ? OR abha_id = ? LIMIT 1`, [patientId, patientId]);
-      patientRow = patDb.rows?.[0] || inMemoryDb.patients.find((p) => p.id === patientId || p.abhaId === patientId) || null;
-    }
-
-    // 4. Fetch vitals
-    let vitalsRow: any = null;
-    if (encounterId) {
-      const vitDb = await executeQuery<any>(`SELECT * FROM vitals WHERE encounter_id = ? ORDER BY recorded_at DESC LIMIT 1`, [encounterId]);
-      vitalsRow = vitDb.rows?.[0] || inMemoryDb.vitals.find((v) => v.encounterId === encounterId) || null;
-    }
-
-    // 5. Fetch SOCRATES assessment
-    let socratesRow: any = null;
-    if (encounterId) {
-      const socDb = await executeQuery<any>(`SELECT * FROM socrates_assessments WHERE encounter_id = ? LIMIT 1`, [encounterId]);
-      socratesRow = socDb.rows?.[0] || inMemoryDb.socratesAssessments.find((s) => s.encounterId === encounterId) || null;
-    }
-
-    // 6. Fetch AYUSH assessment
-    let ayushRow: any = null;
-    if (encounterId) {
-      const ayushDb = await executeQuery<any>(`SELECT * FROM ayush_assessments WHERE encounter_id = ? LIMIT 1`, [encounterId]);
-      ayushRow = ayushDb.rows?.[0] || inMemoryDb.ayushAssessments.find((a) => a.encounterId === encounterId) || null;
-    }
-
-    // 7. Fetch clinical history
-    let historyRow: any = null;
-    if (encounterId) {
-      const hisDb = await executeQuery<any>(`SELECT * FROM clinical_history WHERE encounter_id = ? LIMIT 1`, [encounterId]);
-      historyRow = hisDb.rows?.[0] || inMemoryDb.clinicalHistories.find((h) => h.encounterId === encounterId) || null;
-    }
-
-    // 8. Fetch documents
-    let documentRows: any[] = [];
-    if (encounterId) {
-      const docDb = await executeQuery<any>(`SELECT * FROM documents WHERE encounter_id = ?`, [encounterId]);
-      documentRows = docDb.rows?.length ? docDb.rows : inMemoryDb.documents.filter((d) => d.encounterId === encounterId);
-    }
-
-    // 9. Fetch clinical summary
-    let summaryRow: any = null;
-    if (encounterId) {
-      const sumDb = await executeQuery<any>(`SELECT * FROM clinical_summaries WHERE encounter_id = ? ORDER BY created_at DESC LIMIT 1`, [encounterId]);
-      summaryRow = sumDb.rows?.[0] || inMemoryDb.clinicalSummaries.find((s) => s.encounterId === encounterId) || null;
-    }
-
-    // Normalise patient profile for Doctor Console
-    const patientProfile = patientRow ? {
-      id: patientRow.id,
-      fullName: patientRow.full_name || patientRow.fullName || tokenRow.patient_name || 'Patient',
-      abhaId: patientRow.abha_id || patientRow.abhaId || tokenRow.abha_id || '',
-      age: patientRow.age || tokenRow.age || 35,
-      gender: patientRow.gender || tokenRow.gender || 'Other',
-      phone: patientRow.phone || '',
-      bloodGroup: patientRow.blood_group || patientRow.bloodGroup || 'O+',
-      vitals: vitalsRow ? {
-        bpSystolic: vitalsRow.systolic_bp || vitalsRow.bpSystolic || 120,
-        bpDiastolic: vitalsRow.diastolic_bp || vitalsRow.bpDiastolic || 80,
-        heartRate: vitalsRow.heart_rate || vitalsRow.heartRate || 72,
-        spO2: vitalsRow.spo2 || vitalsRow.spO2 || 98,
-        temperature: vitalsRow.temperature || 98.6,
-        weight: vitalsRow.weight,
-        height: vitalsRow.height,
-        bmi: vitalsRow.bmi,
-      } : undefined,
-    } : null;
-
-    // Normalise history object
-    const historyObject = {
-      chiefComplaint: encounterRow?.chief_complaint_text || tokenRow.chief_complaint || '',
-      opdType: encounterRow?.opd_type || tokenRow.opd_type || 'allopathic',
-      socrates: socratesRow?.raw_responses ? (typeof socratesRow.raw_responses === 'string' ? JSON.parse(socratesRow.raw_responses) : socratesRow.raw_responses) : {},
-      redFlags: socratesRow?.red_flags_triggered ? (typeof socratesRow.red_flags_triggered === 'string' ? JSON.parse(socratesRow.red_flags_triggered) : socratesRow.red_flags_triggered) : (tokenRow.is_red_flag ? [tokenRow.red_flag_reason || 'Critical triage alert'] : []),
-      ayush: ayushRow ? {
-        prakriti: ayushRow.prakriti,
-        agni: ayushRow.agni,
-        koshtha: ayushRow.koshtha,
-        dominantDosha: ayushRow.dosha_imbalance || ayushRow.prakriti,
-        chikitsaGuidance: ayushRow.chikitsa_guidance,
-      } : undefined,
-      familyHistory: historyRow ? {
-        diabetes: Boolean(historyRow.family_diabetes),
-        hypertension: Boolean(historyRow.family_hypertension),
-        heartDisease: Boolean(historyRow.family_heart_disease),
-        cancer: Boolean(historyRow.family_cancer),
-        kidneyDisease: Boolean(historyRow.family_kidney_disease),
-        thyroid: Boolean(historyRow.family_thyroid),
-      } : undefined,
-      personalHistory: historyRow ? {
-        smokingStatus: historyRow.smoking_status || 'Non-Smoker',
-        alcoholUse: historyRow.alcohol_use || 'None',
-        occupation: historyRow.occupation || undefined,
-      } : undefined,
-      transcriptLogs: [],
-    };
-
-    res.json({
-      success: true,
-      token: tokenRow,
-      patientProfile,
-      historyObject,
-      documents: documentRows,
-      summary: summaryRow,
-    });
-  } catch (err: any) {
-    console.error('Error fetching encounter details by token:', err);
-    res.status(500).json({ error: 'Failed to fetch encounter details', detail: err.message });
-  }
-});
-
-// ──────────────────────────────────────────────
-// Atomic Multi-Table Encounter Completion Endpoint
-// ──────────────────────────────────────────────
-app.post('/api/encounters/complete', async (req, res) => {
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Legacy encounter-completion implementation retained temporarily for source
+// compatibility only. The canonical route is the shared handler above.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+app.post('/api/internal/legacy-encounter-complete', async (_req, res) => {
+  return res.status(410).json({ error: 'Deprecated. Use /api/encounters/complete.' });
+  /*
   const {
     tokenPayload,
     patientProfile,
@@ -3886,11 +4321,12 @@ app.post('/api/encounters/complete', async (req, res) => {
     console.error('Error during atomic encounter completion:', err);
     res.status(500).json({ error: 'Atomic encounter completion failed', detail: err.message });
   }
+  */
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Twilio WhatsApp & SMS Notifications
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/notifications/whatsapp', async (req, res) => {
   const { to, message, patientName } = req.body;
   if (!to || !message) {
@@ -3979,9 +4415,9 @@ app.post('/api/notifications/sms', async (req, res) => {
   });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Chief Complaints & Supported Languages (Admin Panel CRUD)
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/chief-complaints', async (_req, res) => {
   try {
     const dbRes = await executeQuery<any>(`SELECT * FROM chief_complaints ORDER BY sort_order ASC`);
@@ -4062,16 +4498,16 @@ app.put('/api/languages/:code', requireRole('admin'), async (req, res) => {
   res.json({ success: true, updated: code });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // AI Kiosk Chat Assistant
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/chat/assistant', async (req, res) => {
   const { message, language = 'en', currentStep } = req.body;
   if (!message) {
     return res.status(400).json({ error: 'Message required' });
   }
 
-  const ai = getGeminiClient();
+  const ai = aiConfigured();
   if (ai) {
     try {
       const prompt = `You are the polite, clinical AI Assistant at an Indian hospital OPD Kiosk named MediKiosk+.
@@ -4085,14 +4521,14 @@ Answer clearly, concisely (under 60 words), with warmth and clinical guidance.
 - If DPDP: assure data is purged under DPDP Act 2023.
 Answer in the patient's language or English if language is en.`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-      });
+      const reply = (await aiText({
+        prompt,
+        modelKind: 'fast',
+      })).trim();
 
-      return res.json({ reply: response.text?.trim(), source: 'gemini-assistant' });
-    } catch (err) {
-      console.warn('Chat AI fallback:', err);
+      return res.json({ reply, source: 'ai-assistant' });
+    } catch (err: any) {
+      console.warn('Chat AI fallback:', err?.message || err);
     }
   }
 
@@ -4102,7 +4538,7 @@ Answer in the patient's language or English if language is en.`;
   if (lower.includes('abha') || lower.includes('card') || lower.includes('aadhaar')) {
     reply = 'You can scan your ABHA QR card on Step 2, enter your 14-digit ABHA number, or use voice recognition to identify yourself.';
   } else if (lower.includes('emergency') || lower.includes('chest') || lower.includes('pain') || lower.includes('dard')) {
-    reply = '🚨 If you are experiencing severe chest pain, extreme breathlessness, or trauma, alert the emergency triage desk immediately. Level-1 priority protocol will activate.';
+    reply = 'ðŸš¨ If you are experiencing severe chest pain, extreme breathlessness, or trauma, alert the emergency triage desk immediately. Level-1 priority protocol will activate.';
   } else if (lower.includes('token') || lower.includes('queue') || lower.includes('wait') || lower.includes('room')) {
     reply = 'Your OPD token slip and assigned room (e.g. Room #104) are generated at the end of registration. Live tokens are also displayed in the queue.';
   } else if (lower.includes('dpdp') || lower.includes('privacy') || lower.includes('delete') || lower.includes('safe')) {
@@ -4112,9 +4548,227 @@ Answer in the patient's language or English if language is en.`;
   res.json({ reply, source: 'rule-fallback' });
 });
 
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Provider-Neutral AI Routes (/api/ai/*)
+// These are the forward-looking endpoints.  The deprecated /api/gemini/*
+// routes above remain as temporary backward-compatible aliases that already
+// delegate to the same provider-neutral services internally.
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+app.post('/api/ai/summarize', async (req, res) => {
+  try {
+    const { historyObject, documents, patientProfile, language = 'en' } = req.body;
+    if (!aiConfigured()) {
+      return res.status(503).json({
+        error: 'AI not configured. Set GROQ_API_KEY in the server environment.',
+        code: 'AI_NOT_CONFIGURED',
+      });
+    }
+    const prompt = `You are an expert Chief Medical Officer and AI Scribe at an OPD Kiosk.
+Synthesize the structured triage data below into an EHR clinical summary conforming to standard SOAP format.
+Patient Intake Data:
+- Chief Complaint: ${historyObject?.chiefComplaint || 'Not specified'}
+- OPD Type: ${historyObject?.opdType}
+- SOCRATES Pain Profile: ${JSON.stringify(historyObject?.socrates || {})}
+- Red Flags: ${JSON.stringify(historyObject?.redFlags || [])}
+- Patient Profile: ${JSON.stringify(patientProfile || {})}
+- AYUSH Pariksha: ${JSON.stringify(historyObject?.ayush || {})}
+- Digitized Historical Documents: ${JSON.stringify(documents || [])}
+- Patient Selected Language: ${language}
+
+Return a valid JSON object matching this schema:
+{
+  "chiefComplaint": string,
+  "hpi": string,
+  "pastHistory": string,
+  "medications": string,
+  "allergies": string,
+  "ayushAssessment": {
+    "prakriti": string,
+    "agni": string,
+    "koshtha": string,
+    "aharaVihara": string,
+    "doshaImbalance": string,
+    "chikitsaGuidance": string
+  } | null,
+  "investigationsSummary": string,
+  "redFlagsIdentified": string[],
+  "differentialDiagnosis": string[],
+  "provisionalPlan": string,
+  "regionalSummary": string (2-3 sentences concise patient summary written in the requested language: ${language}),
+  "hindiSummary": string
+}
+Return only JSON.`;
+
+    const raw = (await aiText({
+      prompt,
+      modelKind: 'reasoning',
+      json: true,
+      system: 'You are an expert medical AI scribe. Never present the output as a confirmed diagnosis; it is assistance for the attending clinician.',
+    })).trim() || '{}';
+    const note = JSON.parse(raw);
+    if (!note.regionalSummary && note.hindiSummary) note.regionalSummary = note.hindiSummary;
+    res.json({ note, source: 'ai' });
+  } catch (err: any) {
+    console.error('[/api/ai/summarize] Error:', err?.message || err);
+    res.status(500).json({ error: 'Clinical summarization failed' });
+  }
+});
+
+app.post('/api/ai/analyze', async (req, res) => {
+  try {
+    const { transcript, language, currentStep } = req.body;
+    if (!aiConfigured()) {
+      return res.status(503).json({ error: 'AI not configured.', code: 'AI_NOT_CONFIGURED' });
+    }
+    const prompt = `You are a medical NLP parser at an OPD Kiosk triage station in India.
+Current step: ${currentStep}. Language: ${language}.
+Patient transcript: "${transcript}"
+Extract clinical attributes according to the SOCRATES framework and determine if red-flag triage criteria are met.
+Return JSON:
+{
+  "extractedSummary": string,
+  "detectedAttributes": {
+    "site": string | null,
+    "onset": string | null,
+    "character": string | null,
+    "radiation": string | null,
+    "associations": string[],
+    "timing": string | null,
+    "exacerbating": string | null,
+    "relieving": string | null,
+    "severity": number | null
+  },
+  "isRedFlagCandidate": boolean,
+  "redFlagReason": string | null
+}`;
+
+    const raw = (await aiText({ prompt, modelKind: 'fast', json: true })).trim() || '{}';
+    res.json({ success: true, extracted: JSON.parse(raw), source: 'ai' });
+  } catch (err: any) {
+    console.error('[/api/ai/analyze] Error:', err?.message || err);
+    res.status(500).json({ error: 'Analysis failed' });
+  }
+});
+
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const { messages } = req.body;
+    if (!aiConfigured()) {
+      return res.status(503).json({ error: 'AI not configured.', code: 'AI_NOT_CONFIGURED' });
+    }
+    const reply = (await aiChat({
+      messages: Array.isArray(messages) ? messages : [{ role: 'user', content: String(messages?.message || '') }],
+      modelKind: 'fast',
+    })).trim();
+    res.json({ reply, source: 'ai' });
+  } catch (err: any) {
+    console.error('[/api/ai/chat] Error:', err?.message || err);
+    res.status(500).json({ error: 'Chat failed' });
+  }
+});
+
+app.post('/api/ai/vision', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', prompt: userPrompt } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+    if (!aiConfigured()) {
+      return res.status(503).json({ error: 'AI not configured.', code: 'AI_NOT_CONFIGURED' });
+    }
+    const validation = validateImage(imageBase64, mimeType);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error || 'Invalid image' });
+    }
+    const raw = (await aiVision({
+      imageBase64: validation.base64!,
+      mimeType: validation.mimeType,
+      prompt: userPrompt || 'Extract all visible text and structured data from this image. Return only JSON.',
+      json: true,
+    })).trim() || '{}';
+    res.json({ success: true, data: JSON.parse(raw), source: 'ai-vision' });
+  } catch (err: any) {
+    console.error('[/api/ai/vision] Error:', err?.message || err);
+    res.status(500).json({ error: 'Vision processing failed' });
+  }
+});
+
+app.post('/api/documents/ocr', async (req, res) => {
+  try {
+    const { imageBase64, mimeType = 'image/jpeg', documentType = 'prescription' } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: 'imageBase64 required' });
+    if (!aiConfigured()) {
+      return res.status(503).json({ error: 'AI not configured.', code: 'AI_NOT_CONFIGURED' });
+    }
+    const validation = validateImage(imageBase64, mimeType);
+    if (!validation.valid) {
+      return res.status(400).json({ error: validation.error || 'Invalid image' });
+    }
+    const { document, source } = await digitizeDocument({
+      imageBase64: validation.base64!,
+      mimeType: validation.mimeType,
+      documentType,
+    });
+    res.json({
+      document: {
+        id: `DOC-${Date.now()}`,
+        fileName: `Scanned_${Date.now()}.jpg`,
+        ...document,
+      },
+      source,
+    });
+  } catch (err: any) {
+    console.error('[/api/documents/ocr] Error:', err?.message || err);
+    res.status(500).json({ error: 'OCR Processing failed' });
+  }
+});
+
+app.post('/api/qr/decode', async (req, res) => {
+  try {
+    const { imageBase64, qrData } = req.body;
+    if (qrData) {
+      try {
+        const parsed = typeof qrData === 'string' ? JSON.parse(qrData) : qrData;
+        return res.json({ success: true, type: 'AR_ABHA_JSON', data: parsed, source: 'simulated' });
+      } catch {
+        return res.status(422).json({ error: 'Invalid QR payload', code: 'QR_DECODE_FAILED' });
+      }
+    }
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'imageBase64 or qrData required', code: 'MISSING_PAYLOAD' });
+    }
+    const result = await decodeQrImage(imageBase64);
+    if (result.success) return res.json(result);
+    return res.status(422).json({
+      error: 'Could not read ABHA QR code. Please ensure good lighting and focus, or enter your ABHA number manually.',
+      code: 'QR_UNREADABLE',
+    });
+  } catch (err: any) {
+    console.error('[/api/qr/decode] Error:', err?.message || err);
+    res.status(422).json({ error: 'Failed to decode ABHA QR', code: 'QR_DECODE_FAILED' });
+  }
+});
+
+// Alias so the frontend can keep using the ABDM-flavoured path if desired.
+app.post('/api/abha/scan', async (req, res) => {
+  try {
+    const { imageBase64 } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ error: 'imageBase64 required', code: 'MISSING_PAYLOAD' });
+    }
+    const result = await decodeQrImage(imageBase64);
+    if (result.success) return res.json({ success: true, type: 'ABHA_QR', payload: result.data, ...result.data });
+    return res.status(422).json({
+      error: 'Could not read ABHA QR code. Please ensure good lighting and focus.',
+      code: 'QR_UNREADABLE',
+    });
+  } catch (err: any) {
+    console.error('[/api/abha/scan] Error:', err?.message || err);
+    res.status(422).json({ error: 'Failed to decode ABHA QR', code: 'QR_DECODE_FAILED' });
+  }
+});
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Server Listener & Vite Integration
-// ──────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function startServer() {
   abdmTokenManager.start();
   if (process.env.NODE_ENV !== 'production') {

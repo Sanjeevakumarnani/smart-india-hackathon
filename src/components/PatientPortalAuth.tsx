@@ -8,21 +8,23 @@ export const PatientPortalAuth: React.FC<{
 }> = ({ onAuthSuccess, onBackToKiosk }) => {
   const [loginMethod, setLoginMethod] = useState<'ABHA' | 'AADHAAR' | 'PHONE'>('ABHA');
   const [inputValue, setInputValue] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authInfo, setAuthInfo] = useState<string | null>(null);
 
-  const handleLogin = async () => {
+  const verifyAndAccess = async () => {
     const trimmed = inputValue.trim();
     if (!trimmed) {
-      setAuthError(`Please enter your ${loginMethod}.`);
+      setAuthError(`Please enter your ${loginMethod === 'ABHA' ? 'ABHA Health ID' : loginMethod === 'AADHAAR' ? 'Aadhaar number' : 'mobile number'}.`);
       return;
     }
 
-    if (loginMethod === 'ABHA' && !/^\d{2}-\d{4}-\d{4}-\d{4}$/.test(trimmed)) {
-      setAuthError('ABHA must be in the format XX-XXXX-XXXX-XXXX');
+    if (loginMethod === 'ABHA' && !(/^\d{2}-\d{4}-\d{4}-\d{4}$/.test(trimmed) || trimmed.includes('@'))) {
+      setAuthError('ABHA must be in the format XX-XXXX-XXXX-XXXX or name@abdm');
       return;
     }
-    if (loginMethod === 'AADHAAR' && !/^\d{4}$/.test(trimmed)) {
-      setAuthError('Please enter the last 4 digits of Aadhaar');
+    if (loginMethod === 'AADHAAR' && !/^(\d{4}|\d{12})$/.test(trimmed)) {
+      setAuthError('Enter the last 4 digits or the full 12-digit Aadhaar number');
       return;
     }
     if (loginMethod === 'PHONE' && !/^\d{10}$/.test(trimmed)) {
@@ -30,21 +32,32 @@ export const PatientPortalAuth: React.FC<{
       return;
     }
 
+    setIsLoading(true);
+    setAuthError(null);
+    setAuthInfo(null);
     try {
-      const response = await fetch(`/api/patients/search?query=${encodeURIComponent(trimmed)}`);
-      if (!response.ok) {
-        throw new Error('Search failed');
+      const path = loginMethod === 'ABHA' ? 'abha' : loginMethod === 'AADHAAR' ? 'aadhaar' : 'mobile';
+      const normalized = loginMethod === 'AADHAAR' ? trimmed.slice(-12) : trimmed;
+      const identifier = loginMethod === 'AADHAAR' && normalized.length === 4 ? `99990000${normalized}` : normalized;
+      const response = await fetch('/api/patient/verify-and-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, action: 'verify', identifier }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.status !== 'VERIFIED' || !result.patient) {
+        throw new Error(result.message || result.error || 'No matching patient record found.');
       }
-      const data = await response.json();
-      const matchedPatient = Array.isArray(data) ? data[0] : (data.patients?.[0] || data);
-
-      if (matchedPatient && matchedPatient.id) {
-        onAuthSuccess(matchedPatient);
-      } else {
-        setAuthError('No patient found. Please register as a new patient.');
+      if (!result.portalSessionToken) {
+        throw new Error('The verified portal session could not be created. Please try again.');
       }
+      // Keep the short-lived credential out of the long-lived kiosk archive.
+      sessionStorage.setItem('medikiosk_patient_portal_token', result.portalSessionToken);
+      onAuthSuccess(result.patient);
     } catch (e) {
-      setAuthError('No patient found or search failed. Please register as a new patient.');
+      setAuthError(e instanceof Error ? e.message : 'Authentication request failed.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -69,6 +82,7 @@ export const PatientPortalAuth: React.FC<{
               onClick={() => {
                 setLoginMethod(method);
                 setAuthError(null);
+                setAuthInfo(null);
               }}
               className={`flex-1 py-2.5 text-xs font-mono font-bold rounded-xl transition-all ${
                 loginMethod === method
@@ -92,6 +106,12 @@ export const PatientPortalAuth: React.FC<{
               onChange={(e) => {
                 setInputValue(e.target.value);
                 setAuthError(null);
+                setAuthInfo(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !isLoading) {
+                  void verifyAndAccess();
+                }
               }}
               className="w-full bg-slate-50 border border-slate-200 rounded-2xl px-4 py-4 text-slate-900 font-mono focus:bg-white focus:outline-none focus:border-indigo-500 transition-all focus:ring-2 focus:ring-indigo-500/20"
               placeholder={loginMethod === 'ABHA' ? 'e.g. 91-1234-5678-9012' : loginMethod === 'AADHAAR' ? 'e.g. 4392' : 'e.g. +91 98765 43210'}
@@ -103,13 +123,15 @@ export const PatientPortalAuth: React.FC<{
               <span>{authError}</span>
             </p>
           )}
+          {authInfo && <p className="text-xs text-indigo-700 mt-2 font-medium">{authInfo}</p>}
         </div>
 
         <button
-          onClick={handleLogin}
+          onClick={() => void verifyAndAccess()}
+          disabled={isLoading}
           className="w-full py-4 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-98 mb-4"
         >
-          <span>Authenticate & Access Records</span>
+          <span>{isLoading ? 'Please wait...' : 'Verify & Access Records'}</span>
           <ArrowRight className="w-4 h-4 stroke-[2.5]" />
         </button>
 
