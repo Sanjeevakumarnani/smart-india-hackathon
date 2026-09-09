@@ -318,11 +318,12 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
         </div>
       )}
 
-      {allDone && (
-        <div className="w-full flex flex-col items-center gap-3">
+      <div className="w-full flex flex-col items-center gap-3">
+          {allDone && (
           <p className="text-xs text-slate-500 font-mono">
             Physician console auto-opens in {countdown} second{countdown !== 1 ? 's' : ''}...
           </p>
+          )}
           <button
             onClick={onProceed}
             className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition active:scale-98"
@@ -338,7 +339,6 @@ export const SessionPurgeScreen: React.FC<SessionPurgeScreenProps> = ({ createdT
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
-      )}
     </div>
   );
 };

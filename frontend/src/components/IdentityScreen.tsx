@@ -844,7 +844,7 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
                       onClick={onContinue}
                       className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black hover:bg-emerald-700 transition flex items-center gap-1.5 shadow-sm shadow-emerald-600/20"
                     >
-                      Proceed to Vitals
+                      Proceed to Symptoms
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -1250,9 +1250,9 @@ export const IdentityScreen: React.FC<IdentityScreenProps> = ({
           className="py-3 px-8 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-black text-sm flex items-center gap-3 shadow-lg shadow-indigo-600/20 transition active:scale-[0.98]"
         >
           <div className="text-left">
-            <span>{translate('confirmVitals', selectedLanguage)}</span>
+            <span>{translate('continue', selectedLanguage)}</span>
             {selectedLanguage !== 'en' && (
-              <span className="block text-[10px] font-normal opacity-85">Confirm Patient & Record Vitals</span>
+              <span className="block text-[10px] font-normal opacity-85">Select Primary Complaint</span>
             )}
           </div>
           <ArrowRight className="w-4 h-4 stroke-[2.5] shrink-0" />

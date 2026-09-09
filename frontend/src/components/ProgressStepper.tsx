@@ -28,7 +28,7 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
     {
       id: 'step-1',
       key: 'IDENTITY' as KioskStep,
-      related: ['LANGUAGE', 'CONSENT', 'IDENTITY', 'VITALS'],
+      related: ['LANGUAGE', 'CONSENT', 'IDENTITY'],
       label: translate('stepIdentify', language),
       sublabel: language !== 'en' ? translate('stepIdentify', 'en') : undefined,
       icon: UserCheck,
@@ -79,7 +79,6 @@ export const ProgressStepper: React.FC<ProgressStepperProps> = ({
     'LANGUAGE',
     'CONSENT',
     'IDENTITY',
-    'VITALS',
     'COMPLAINT_SELECT',
     'CONVERSATION',
     'FAMILY_HISTORY',

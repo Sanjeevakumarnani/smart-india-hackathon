@@ -14,7 +14,6 @@ import { Header } from './components/Header';
 import { LanguagePicker } from './components/LanguagePicker';
 import { ConsentScreen } from './components/ConsentScreen';
 import { IdentityScreen } from './components/IdentityScreen';
-import { VitalsCaptureScreen } from './components/VitalsCaptureScreen';
 import { ChiefComplaintPicker } from './components/ChiefComplaintPicker';
 import { SocratesConversationEngine } from './components/SocratesConversationEngine';
 import { FamilyPersonalHistoryScreen } from './components/FamilyPersonalHistoryScreen';
@@ -291,7 +290,6 @@ export function App() {
 
   const navigateToStep = (step: KioskStep) => {
     const blockedMessages: Partial<Record<KioskStep, string>> = {
-      VITALS: !patientProfile ? 'Verify patient identity before entering vitals.' : undefined,
       COMPLAINT_SELECT: !patientProfile ? 'Verify patient identity before selecting a complaint.' : undefined,
       CONVERSATION: !selectedComplaintId ? 'Select a chief complaint before starting the symptom interview.' : undefined,
       FAMILY_HISTORY: !historyObject.chiefComplaint ? 'Complete the chief complaint step first.' : undefined,
@@ -456,20 +454,9 @@ export function App() {
             onSelectProfile={(p) => {
               setPatientProfile(p);
             }}
-            onContinue={() => navigateToStep('VITALS')}
+            onContinue={() => navigateToStep('COMPLAINT_SELECT')}
             onBack={() => setCurrentStep('CONSENT')}
             selectedLanguage={selectedLanguage}
-          />
-        )}
-
-        {currentStep === 'VITALS' && (
-          <VitalsCaptureScreen
-            patientProfile={patientProfile}
-            onUpdateProfile={(p) => setPatientProfile(p)}
-            onContinue={() => setCurrentStep('COMPLAINT_SELECT')}
-            onBack={() => setCurrentStep('IDENTITY')}
-            selectedLanguage={selectedLanguage}
-            isAudioNarration={isAudioNarration}
           />
         )}
 
@@ -489,7 +476,7 @@ export function App() {
                 setCurrentStep('CONVERSATION');
               }
             }}
-            onBack={() => setCurrentStep('VITALS')}
+            onBack={() => setCurrentStep('IDENTITY')}
             selectedLanguage={selectedLanguage}
           />
         )}
@@ -623,8 +610,6 @@ export function App() {
             ? 'Review health privacy consent terms.'
             : currentStep === 'IDENTITY'
             ? 'Scan ABHA card or select patient persona.'
-            : currentStep === 'VITALS'
-            ? 'Measure and enter your blood pressure and vitals.'
             : currentStep === 'COMPLAINT_SELECT'
             ? 'Select your primary symptoms or department.'
             : currentStep === 'CONVERSATION'
