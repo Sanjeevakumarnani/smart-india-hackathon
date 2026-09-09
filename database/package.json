@@ -1,0 +1,20 @@
+{
+  "name": "medikiosk-plus-database",
+  "private": true,
+  "version": "1.0.0",
+  "description": "MediKiosk+ database schema, migrations and import helpers (schema.sql + MySQL scripts). Runs standalone; the backend package also forwards to these scripts.",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "scripts": {
+    "setup:db": "node migrations/setup_db.cjs",
+    "migrate:rbac": "node migrations/migrate_rbac.cjs",
+    "migrate:patient-abdm": "node migrations/migrate_patient_abdm.cjs",
+    "import:schema": "node scripts/import_schema.cjs"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "mysql2": "^3.24.3"
+  }
+}

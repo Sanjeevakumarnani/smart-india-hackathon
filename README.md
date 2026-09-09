@@ -1,165 +1,181 @@
-# MediKiosk+ 🏥
+# MediKiosk+
 
-> **AI-Assisted Multilingual Patient Case-Taking & Clinical Triage Kiosk**  
-> *Smart India Hackathon (SIH) — Problem Statement ID: 26047 | Ministry of Ayush / All India Institute of Ayurveda (AIIA)*  
-> AYUSH Dashavidha Pariksha · SOCRATES Interview Engine · On-Demand ABHA/QR Scanner · FHIR R4 · Real-time OPD Queue
+Multilingual, AI-powered patient case-taking and OPD triage kiosk (PS 26047).
+Kiosk-fronted intake for patients, SOCRATES/AYUSH questioning, document OCR,
+physician summaries, ABDM QR identity, FHIR push, Hindi/Tamil/Telugu/Kannada/
+Marathi/Malayalam speech — plus a doctor console with live queue and analytics.
 
----
-
-## 📌 Executive Summary
-
-In Indian tertiary hospitals and public health centres, Outpatient Departments (OPDs) manage **4,000 to 10,000 patients daily**, compressing consultation times to an unsustainable **2 to 5 minutes** per patient. Under this severe time constraint, thorough clinical history-taking is invariably compromised.
-
-**MediKiosk+** transforms hospital intake into an automated, multilingual, patient-facing digital workflow. It captures demographics, chief complaints, structured clinical histories, past medical records via OCR, and AYUSH-specific systemic evaluations before the patient steps into the doctor's chamber. The physician receives a pre-compiled, structured clinical brief and FHIR R4-compliant record, restoring quality consultation time to patient care.
-
----
-
-## ✨ Key Capabilities
-
-### 1. 🌐 Zero-Scroll Single-Screen Multilingual UI
-- Tailored for high-throughput kiosks with an instant **3-up, 3-down** clean grid layout:
-  - 🇬🇧 **English**
-  - 🇮🇳 **Telugu (తెలుగు)**
-  - 🇮🇳 **Tamil (தமிழ்)**
-  - 🇮🇳 **Kannada (ಕನ್ನಡ)**
-  - 🇮🇳 **Malayalam (മലയാളം)**
-  - 🇮🇳 **Marathi (मराठी)**
-- **Instant Progression**: Automatically navigates to patient intake upon selection without requiring unnecessary confirmation clicks.
-- Built-in Voice Narration (Text-to-Speech) and Speech-to-Text in regional dialects.
-
-### 2. 🆔 Unified ABDM Multi-Channel Intake
-- **Merged ABHA & QR Scanner**: ABHA ID input and live QR camera scanner in a single interface.
-- **Privacy-Preserving On-Demand Camera**: Camera hardware is activated **only when the user taps "Scan QR"**, eliminating unnecessary camera usage, battery drain, and privacy concerns.
-- **Aadhaar & Mobile OTP Channels**: Direct mobile OTP and Aadhaar authentication with encrypted payload transport.
-- **New Patient Registration**: Seamless capture of demographic details with immediate OPD queue token issuance.
-
-### 3. 🩺 Dual Clinical Intelligence Engine
-- **Modern Clinical Intake (SOCRATES Framework)**: Elicits **S**ite, **O**nset, **C**haracter, **R**adiation, **A**ssociations, **T**iming, **E**xacerbating/Relieving factors, and **S**everity.
-- **AYUSH Dashavidha Pariksha**: Comprehensive Ayurvedic systemic assessment:
-  - *Prakriti* (Constitution), *Vikriti* (Pathological imbalance), *Sara* (Tissue vitality), *Samhanana* (Body build), *Pramana* (Anthropometry), *Satmya* (Habituation), *Satwa* (Mental resilience), *Ahara-shakti* (Digestive capacity), *Vyayama-shakti* (Physical endurance), and *Vaya* (Age stage).
-- **Document OCR Intelligence**: Analyzes uploaded photos or scans of past prescriptions, diagnostic reports, and discharge summaries via Gemini AI.
-- **Deterministic Offline Fallback**: Fully functional clinical triage rule engine if internet connectivity or API quota is unavailable.
-
-### 4. 🚨 Red Flag & Emergency Triage
-- Automated detection of critical clinical indicators (severe chest pain, dyspnea, acute neurological signs, abnormal vitals).
-- Real-time cross-tab alerts via `BroadcastChannel` immediately notifying triage staff and doctor stations.
-
-### 5. 📋 Live Doctor OPD Dashboard & FHIR Interoperability
-- Real-time queue tracker with triage priority tags (Emergency, High, Routine).
-- In-depth clinical brief viewer with one-click **Download PDF Case Summary**.
-- Standards-compliant **HL7 FHIR R4 Bundle** generation for seamless integration with Hospital Information Systems (HIS) and ABDM health records.
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-| :--- | :--- |
-| **Frontend** | React 19, TypeScript, Vite, Tailwind CSS v4, Lucide Icons, Recharts, Motion |
-| **Backend** | Node.js, Express, TSX |
-| **Database** | MySQL (22 structured relational tables for patients, visits, OPD queue, audit logs) |
-| **AI / OCR** | Google GenAI SDK (`@google/genai` Gemini 2.0 Flash / Pro) + Clinical Fallback Engine |
-| **Standards** | HL7 FHIR R4 JSON Bundle, ABDM v3 Specifications |
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- **Node.js** v18.0.0 or higher
-- **MySQL Server** (e.g., MySQL Community Server or XAMPP / MariaDB)
-
-### 1. Clone & Install Dependencies
-```bash
-git clone https://github.com/Sanjeevakumarnani/smart-india-hackathon.git
-cd smart-india-hackathon
-npm install
-```
-
-### 2. Configure Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-# Windows
-copy .env.example .env
-
-# macOS / Linux
-cp .env.example .env
-```
-
-Configure your `.env` settings:
-```env
-PORT=3000
-NODE_ENV=development
-
-# Database Configuration
-DB_HOST=localhost
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=medikiosk
-
-# Gemini AI (Optional — app operates with fallback engine if omitted)
-GEMINI_API_KEY="your-gemini-api-key"
-
-# JWT Secret
-JWT_SECRET=your_jwt_secret_key
-```
-
-### 3. Initialize Database & Run Migrations
-```bash
-# Create database tables and initial seed data
-npm run setup:db
-
-# Run patient ABDM migration
-npm run migrate:patient-abdm
-```
-
-### 4. Start Development Server
-```bash
-npm run dev
-```
-Open **[http://localhost:3000](http://localhost:3000)** in your browser.
-
----
-
-## 📜 Available NPM Scripts
-
-| Command | Description |
-| :--- | :--- |
-| `npm run dev` | Runs backend Express server with Vite HMR on port 3000 |
-| `npm run build` | Builds frontend production assets and bundles backend |
-| `npm run start` | Runs production bundle from `dist/server.cjs` |
-| `npm run setup:db` | Initializes MySQL database schema (`schema.sql`) |
-| `npm run migrate:patient-abdm`| Applies ABDM patient columns and schema updates |
-| `npm run lint` | TypeScript static type checking (`tsc --noEmit`) |
-
----
-
-## 📁 Repository Structure
+This repository is a monorepo of three independently deployable packages:
 
 ```
 medikiosk+/
-├── src/
-│   ├── components/            # UI components (Kiosk, Intake, SOCRATES, AYUSH, Dashboard)
-│   │   ├── LanguageSelection.tsx # 6-language 3x2 responsive grid with auto-advance
-│   │   ├── AbhaVerification.tsx  # Unified ABHA & QR scanner (on-demand camera toggle)
-│   │   ├── AadhaarVerification.tsx
-│   │   ├── MobileVerification.tsx
-│   │   ├── SocratesAssessment.tsx
-│   │   ├── AyushAssessment.tsx
-│   │   └── DoctorDashboard.tsx
-│   ├── services/              # Client services (Gemini, Speech, FHIR, BroadcastChannel)
-│   ├── data/                  # Mock data, translations, clinical vocabularies
-│   ├── types.ts               # Shared TypeScript schemas and data interfaces
-│   └── App.tsx                # Main state machine & navigation router
-├── server.ts                  # Express backend & API gateway
-├── schema.sql                 # MySQL schema definitions
-├── setup_db.cjs               # Database bootstrap script
-├── migrate_patient_abdm.cjs   # Patient ABDM migration script
-└── package.json               # Project manifest and dependencies
+├── backend/     Express API (Render)  — port 3000
+├── frontend/    React + Vite PWA (Vercel) — port 5173
+└── database/    schema.sql + MySQL migration/import scripts
 ```
+
+The web app and the API run on separate hosts: the frontend talks to the
+backend through an absolute origin configured with `VITE_API_URL`, so no
+same-origin proxy is needed in production.
 
 ---
 
-## ⚖️ License & Acknowledgements
-Developed for the **Smart India Hackathon** under the auspices of the **Ministry of Ayush** and **All India Institute of Ayurveda (AIIA)**.
+## Quick start (local development)
+
+Prerequisites: **Node 22+**, MySQL 8 running locally (optional — see note below).
+
+```bash
+npm run install:all          # install backend, frontend, database deps
+
+# 1. Backend — copy backend/.env.example ➜ backend/.env, set DB + JWT_SECRET
+npm run dev:backend          # Express API on http://localhost:3000
+
+# 2. Frontend — copy frontend/.env.example ➜ frontend/.env.local if needed
+npm run dev:frontend         # Vite dev server on http://localhost:5173
+```
+
+Open http://localhost:5173. The default `VITE_API_URL` already points at
+`http://localhost:3000`.
+
+> **No MySQL? No problem.** The backend includes a robust in-memory fallback
+> datastore (with throttled warning logs) so the kiosk keeps running through
+> temporary database outages. Data written while falling back is not persisted.
+
+### Verify the backend
+
+```
+GET /api/health
+```
+returns `{ status: "ok", aiConfigured, sarvamConfigured, databaseConnected }`.
+
+---
+
+## Backend (`backend/`)
+
+Standalone Express API — renders no HTML.
+
+| Command          | What it does                                             |
+| ---------------- | -------------------------------------------------------- |
+| `npm run dev`    | `tsx src/app.ts` (dev)                                   |
+| `npm run build`  | esbuild → `dist/server.cjs` (single-file bundle)         |
+| `npm start`      | `node dist/server.cjs` (production; Render start cmd)    |
+| `npm run lint`   | `tsc --noEmit`                                           |
+| `npm test`       | vitest (unit tests in `src/services/__tests__`)          |
+
+Configured from environment variables — see `backend/.env.example`. Key ones:
+
+| Variable                 | Purpose                                                    |
+| ------------------------ | ---------------------------------------------------------- |
+| `PORT`                   | Listen port (Render injects its own). Default `3000`       |
+| `FRONTEND_URL`           | Comma-separated CORS allow-list of frontend origins        |
+| `JWT_SECRET`             | Signing secret — **required in production** (boot fails if unset) |
+| `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME` | MySQL connection             |
+| `DB_SSL` / `DB_SSL_CA` / `DB_SSL_REJECT_UNAUTHORIZED` | TLS for managed MySQL |
+| `SARVAM_API_KEY`, `GROQ_API_KEY` | Speech + LLM providers (optional, degrade gracefully) |
+| `ABDM_*`, `BHASHINI_*`, `TWILIO_*` | Optional integrations |
+| `DEMO_MODE`, `DEMO_LOG_OTP`, `DEMO_ALLOW_REGISTRATION` | Reserved demo controls (default `false`) |
+
+---
+
+## Frontend (`frontend/`)
+
+React 19 + Vite 6 PWA (auto-updating service worker).
+
+| Command                  | What it does                  |
+| ------------------------ | ----------------------------- |
+| `npm run dev`            | Vite dev server on :5173      |
+| `npm run build`          | `vite build` → `dist/`        |
+| `npm run typecheck`      | `tsc --noEmit`                |
+
+All API traffic goes through `src/config/api.ts` (`API_BASE_URL`,
+`apiUrl()`, `apiFetch()`). Set the deployed backend origin with
+`VITE_API_URL` (see `frontend/.env.example`); locally it defaults to
+`http://localhost:3000`.
+
+---
+
+## Database (`database/`)
+
+`schema.sql` is the source of truth for the schema; seed data (languages,
+chief complaints, AYUSH card decks, kiosk stations, default users) lives in
+`schema.sql` and in the backend's `src/data/mockData.ts`.
+
+Health-check the installed seed users (created by `schema.sql` / `setup_db`):
+
+```
+admin   / Admin@123
+doctor1 / Doctor@123
+staff1  / Staff@123
+```
+
+> Provide connection details via `DB_*` env vars (local `.env` or shell).
+> The backend hard-fails these hard-coded login fallbacks in production.
+
+### Local MySQL (interactive wizard)
+
+```bash
+npm run setup:db --prefix database         # creates DB, runs schema.sql, seeds users
+```
+
+### Managed / cloud MySQL (non-interactive)
+
+Use `import:schema` for providers that already allocate the database
+(Aiven, PlanetScale, DigitalOcean, Railway, …). It creates the database if
+missing, executes `schema.sql`, and prints table/seed verification:
+
+```bash
+DB_HOST=... DB_PORT=3306 DB_USER=... DB_PASSWORD=... DB_NAME=medikiosk \
+DB_SSL=true DB_SSL_CA=/path/to/ca.pem \
+npm run import:schema --prefix database
+```
+
+Required on most managed providers: **TLS** (`DB_SSL=true`). Some providers
+wrap the CA bundle, in which case also set `DB_SSL_CA`; relax
+`DB_SSL_REJECT_UNAUTHORIZED` only if the provider demands it.
+
+### Migrations
+
+```bash
+npm run migrate:rbac --prefix database           # RBAC + management tables
+npm run migrate:patient-abdm --prefix database   # patients.abha_address, photo_url
+```
+
+Migrations are idempotent (use `IF NOT EXISTS` / column-exists checks).
+
+---
+
+## Deploying
+
+### Frontend → Vercel
+
+1. Import the repo. **Root Directory:** `frontend`
+2. Framework preset: **Vite**; Build: `npm run build`; Output: `dist`
+3. Add env var `VITE_API_URL=https://<your-backend>.onrender.com`
+
+### Backend → Render (Web Service)
+
+1. **Root Directory:** `backend`
+2. Build command: `npm run build`  →  Start command: `node dist/server.cjs`
+3. Runtime: **Node 22**
+4. Add env vars from `backend/.env.example`:
+   - `JWT_SECRET` (a long random value — mandatory)
+   - `FRONTEND_URL=https://<your-vercel-app>.vercel.app`
+   - `DB_*` pointing at your managed MySQL, with `DB_SSL=true`
+   - provider keys (`SARVAM_API_KEY`, `GROQ_API_KEY`, …) as required
+
+### Database → managed MySQL
+
+Import via `npm run import:schema --prefix database` (above), then attach the
+connection details to the Render service.
+
+---
+
+## Repository notes
+
+- `mockData.ts` is **backend-only**; the frontend fetches it (`/api/languages`,
+  `/api/chief-complaints`, `/api/ayush/cards`, `/api/kiosk/config`, …).
+- The backend never crashes on a database outage — see `backend/src/db.ts`.
+- Dead/duplicate Express routes were pruned during the monorepo split (Express
+  only ever executes the first-matching registration).
+- `corrections.jsonl` (auto-written by the physician-correction flow) is
+  git-ignored.

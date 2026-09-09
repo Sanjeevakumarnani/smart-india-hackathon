@@ -1,0 +1,45 @@
+{
+  "name": "medikiosk-plus-backend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "MediKiosk+ Express API — patient case-taking, OPD triage, ABDM/Groq/Sarvam integrations, FHIR push. Deploys standalone to Render.",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "scripts": {
+    "dev": "tsx src/app.ts",
+    "build": "esbuild src/app.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "setup:db": "node ../database/migrations/setup_db.cjs",
+    "migrate:rbac": "node ../database/migrations/migrate_rbac.cjs",
+    "migrate:patient-abdm": "node ../database/migrations/migrate_patient_abdm.cjs"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.24.3",
+    "twilio": "^6.1.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.14.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "vitest": "^5.0.0"
+  }
+}
