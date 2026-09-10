@@ -1,106 +1,117 @@
 # MediKiosk+
 
-Multilingual, AI-powered patient case-taking and OPD triage kiosk (PS 26047).
-Kiosk-fronted intake for patients, SOCRATES/AYUSH questioning, document OCR,
-physician summaries, ABDM QR identity, FHIR push, Hindi/Tamil/Telugu/Kannada/
-Marathi/Malayalam speech — plus a doctor console with live queue and analytics.
+Multilingual, AI-powered patient intake and OPD triage kiosk (PS 26047).
 
-This repository is a monorepo of three independently deployable packages:
+MediKiosk+ provides a kiosk-fronted intake for patients with multilingual speech support, structured clinical questioning (SOCRATES/AYUSH), document OCR, physician summaries, ABDM QR identity support, FHIR push, and a doctor console with live queue and analytics. The project is implemented as a TypeScript monorepo and includes backend, frontend, and database packages.
+
+Key features
+
+- Multilingual speech: Hindi, Tamil, Telugu, Kannada, Marathi, Malayalam (speech-to-text and TTS)
+- AI-assisted case-taking and physician summaries
+- Support for ABDM QR identity and FHIR push
+- Document OCR for scanned/photographed documents
+- Doctor console with live queue, patient notes, and analytics
+- Resilient backend with in-memory fallback when DB is unavailable
+
+Repository layout
 
 ```
 medikiosk+/
-├── backend/     Express API (Render)  — port 3000
-├── frontend/    React + Vite PWA (Vercel) — port 5173
+├── backend/     Express API (Render)  — default port 3000
+├── frontend/    React + Vite PWA (Vercel) — default port 5173
 └── database/    schema.sql + MySQL migration/import scripts
 ```
 
-The web app and the API run on separate hosts: the frontend talks to the
-backend through an absolute origin configured with `VITE_API_URL`, so no
-same-origin proxy is needed in production.
+Tech stack
 
----
+- TypeScript (primary)
+- Node 22+ runtime
+- Express (backend)
+- React 19 + Vite 6 (frontend PWA)
+- MySQL 8 (database)
 
-## Quick start (local development)
+Quick start (local development)
 
-Prerequisites: **Node 22+**, MySQL 8 running locally (optional — see note below).
+Prerequisites
+
+- Node 22+
+- (Optional) MySQL 8 running locally. The backend can fall back to an in-memory datastore for quick testing, but that fallback is not persistent.
+
+Install dependencies
 
 ```bash
-npm run install:all          # install backend, frontend, database deps
-
-# 1. Backend — copy backend/.env.example ➜ backend/.env, set DB + JWT_SECRET
-npm run dev:backend          # Express API on http://localhost:3000
-
-# 2. Frontend — copy frontend/.env.example ➜ frontend/.env.local if needed
-npm run dev:frontend         # Vite dev server on http://localhost:5173
+# from repository root
+npm run install:all
 ```
 
-Open http://localhost:5173. The default `VITE_API_URL` already points at
-`http://localhost:3000`.
+Run the backend and frontend locally
 
-> **No MySQL? No problem.** The backend includes a robust in-memory fallback
-> datastore (with throttled warning logs) so the kiosk keeps running through
-> temporary database outages. Data written while falling back is not persisted.
+1. Backend
 
-### Verify the backend
+- Copy `backend/.env.example` to `backend/.env` and set required env vars (see Backend configuration below).
+
+```bash
+npm run dev:backend   # starts the Express API on http://localhost:3000
+```
+
+2. Frontend
+
+- Optionally copy `frontend/.env.example` to `frontend/.env.local` and set `VITE_API_URL` if you want a different backend origin.
+
+```bash
+npm run dev:frontend  # starts the Vite dev server on http://localhost:5173
+```
+
+Open http://localhost:5173 in your browser. By default, the frontend expects the API at http://localhost:3000.
+
+API health check
 
 ```
 GET /api/health
 ```
-returns `{ status: "ok", aiConfigured, sarvamConfigured, databaseConnected }`.
 
----
+Returns a JSON object such as:
 
-## Backend (`backend/`)
+```json
+{ "status": "ok", "aiConfigured": false, "sarvamConfigured": false, "databaseConnected": true }
+```
 
-Standalone Express API — renders no HTML.
+Backend (backend/)
 
-| Command          | What it does                                             |
-| ---------------- | -------------------------------------------------------- |
-| `npm run dev`    | `tsx src/app.ts` (dev)                                   |
-| `npm run build`  | esbuild → `dist/server.cjs` (single-file bundle)         |
-| `npm start`      | `node dist/server.cjs` (production; Render start cmd)    |
-| `npm run lint`   | `tsc --noEmit`                                           |
-| `npm test`       | vitest (unit tests in `src/services/__tests__`)          |
+The backend is a standalone Express API and does not render HTML. Common commands:
 
-Configured from environment variables — see `backend/.env.example`. Key ones:
+- `npm run dev` — run the backend in development (tsx src/app.ts)
+- `npm run build` — build single-file bundle (esbuild → dist/server.cjs)
+- `npm start` — run production bundle (node dist/server.cjs)
+- `npm run lint` — type-check only (tsc --noEmit)
+- `npm test` — run unit tests (vitest)
 
-| Variable                 | Purpose                                                    |
-| ------------------------ | ---------------------------------------------------------- |
-| `PORT`                   | Listen port (Render injects its own). Default `3000`       |
-| `FRONTEND_URL`           | Comma-separated CORS allow-list of frontend origins        |
-| `JWT_SECRET`             | Signing secret — **required in production** (boot fails if unset) |
-| `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME` | MySQL connection             |
-| `DB_SSL` / `DB_SSL_CA` / `DB_SSL_REJECT_UNAUTHORIZED` | TLS for managed MySQL |
-| `SARVAM_API_KEY`, `GROQ_API_KEY` | Speech + LLM providers (optional, degrade gracefully) |
-| `ABDM_*`, `BHASHINI_*`, `TWILIO_*` | Optional integrations |
-| `DEMO_MODE`, `DEMO_LOG_OTP`, `DEMO_ALLOW_REGISTRATION` | Reserved demo controls (default `false`) |
+Configuration
 
----
+Copy `backend/.env.example` to `backend/.env` and set the following key variables:
 
-## Frontend (`frontend/`)
+- `PORT` — server port (default 3000)
+- `FRONTEND_URL` — comma-separated CORS allow-list for frontend origins
+- `JWT_SECRET` — signing secret (required in production)
+- `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` — MySQL connection
+- `DB_SSL`, `DB_SSL_CA`, `DB_SSL_REJECT_UNAUTHORIZED` — TLS settings for managed MySQL
+- Optional integrations: `SARVAM_API_KEY`, `GROQ_API_KEY`, `ABDM_*`, `BHASHINI_*`, `TWILIO_*`
+- Demo controls: `DEMO_MODE`, `DEMO_LOG_OTP`, `DEMO_ALLOW_REGISTRATION` (defaults: false)
 
-React 19 + Vite 6 PWA (auto-updating service worker).
+Frontend (frontend/)
 
-| Command                  | What it does                  |
-| ------------------------ | ----------------------------- |
-| `npm run dev`            | Vite dev server on :5173      |
-| `npm run build`          | `vite build` → `dist/`        |
-| `npm run typecheck`      | `tsc --noEmit`                |
+The frontend is a React 19 + Vite 6 Progressive Web App (PWA) with an auto-updating service worker. Common commands:
 
-All API traffic goes through `src/config/api.ts` (`API_BASE_URL`,
-`apiUrl()`, `apiFetch()`). Set the deployed backend origin with
-`VITE_API_URL` (see `frontend/.env.example`); locally it defaults to
-`http://localhost:3000`.
+- `npm run dev` — start Vite dev server (default :5173)
+- `npm run build` — build production static assets (dist/)
+- `npm run typecheck` — `tsc --noEmit`
 
----
+API communication is centralized in `src/config/api.ts` and uses the `VITE_API_URL` environment variable to determine the backend origin. Locally this defaults to `http://localhost:3000`.
 
-## Database (`database/`)
+Database (database/)
 
-`schema.sql` is the source of truth for the schema; seed data (languages,
-chief complaints, AYUSH card decks, kiosk stations, default users) lives in
-`schema.sql` and in the backend's `src/data/mockData.ts`.
-
-Health-check the installed seed users (created by `schema.sql` / `setup_db`):
+- `schema.sql` is the source-of-truth for the database schema and includes seed data for languages, chief complaints, AYUSH card decks, kiosk stations, and default users.
+- Seed users (created by schema.sql / setup_db):
 
 ```
 admin   / Admin@123
@@ -108,20 +119,15 @@ doctor1 / Doctor@123
 staff1  / Staff@123
 ```
 
-> Provide connection details via `DB_*` env vars (local `.env` or shell).
-> The backend hard-fails these hard-coded login fallbacks in production.
-
-### Local MySQL (interactive wizard)
+Local interactive setup
 
 ```bash
 npm run setup:db --prefix database         # creates DB, runs schema.sql, seeds users
 ```
 
-### Managed / cloud MySQL (non-interactive)
+Managed / cloud MySQL
 
-Use `import:schema` for providers that already allocate the database
-(Aiven, PlanetScale, DigitalOcean, Railway, …). It creates the database if
-missing, executes `schema.sql`, and prints table/seed verification:
+If you use a managed provider (PlanetScale, Aiven, Railway, DigitalOcean, etc.), import the schema non-interactively:
 
 ```bash
 DB_HOST=... DB_PORT=3306 DB_USER=... DB_PASSWORD=... DB_NAME=medikiosk \
@@ -129,53 +135,52 @@ DB_SSL=true DB_SSL_CA=/path/to/ca.pem \
 npm run import:schema --prefix database
 ```
 
-Required on most managed providers: **TLS** (`DB_SSL=true`). Some providers
-wrap the CA bundle, in which case also set `DB_SSL_CA`; relax
-`DB_SSL_REJECT_UNAUTHORIZED` only if the provider demands it.
+Notes:
+- Most managed providers require TLS (`DB_SSL=true`). Set `DB_SSL_CA` if the provider supplies a CA bundle. Only set `DB_SSL_REJECT_UNAUTHORIZED` when required by the provider.
 
-### Migrations
+Migrations
 
 ```bash
 npm run migrate:rbac --prefix database           # RBAC + management tables
-npm run migrate:patient-abdm --prefix database   # patients.abha_address, photo_url
+npm run migrate:patient-abdm --prefix database   # add patient abdm columns
 ```
 
-Migrations are idempotent (use `IF NOT EXISTS` / column-exists checks).
+Deploying
 
----
+Frontend → Vercel
 
-## Deploying
+1. Import the repo into Vercel.
+2. Root Directory: `frontend`
+3. Framework preset: Vite. Build command: `npm run build`, Output Directory: `dist`
+4. Set env var `VITE_API_URL=https://<your-backend>.onrender.com`
 
-### Frontend → Vercel
+Backend → Render (Web Service)
 
-1. Import the repo. **Root Directory:** `frontend`
-2. Framework preset: **Vite**; Build: `npm run build`; Output: `dist`
-3. Add env var `VITE_API_URL=https://<your-backend>.onrender.com`
+1. Root Directory: `backend`
+2. Build command: `npm run build`
+3. Start command: `node dist/server.cjs`
+4. Runtime: Node 22
+5. Add env vars from `backend/.env.example` (including `JWT_SECRET`, `FRONTEND_URL`, and `DB_*` credentials)
 
-### Backend → Render (Web Service)
+Database → Managed MySQL
 
-1. **Root Directory:** `backend`
-2. Build command: `npm run build`  →  Start command: `node dist/server.cjs`
-3. Runtime: **Node 22**
-4. Add env vars from `backend/.env.example`:
-   - `JWT_SECRET` (a long random value — mandatory)
-   - `FRONTEND_URL=https://<your-vercel-app>.vercel.app`
-   - `DB_*` pointing at your managed MySQL, with `DB_SSL=true`
-   - provider keys (`SARVAM_API_KEY`, `GROQ_API_KEY`, …) as required
+Import schema using `npm run import:schema --prefix database` and attach DB connection details to your Render service.
 
-### Database → managed MySQL
+Repository notes
 
-Import via `npm run import:schema --prefix database` (above), then attach the
-connection details to the Render service.
+- `mockData.ts` is backend-only; the frontend fetches endpoints such as `/api/languages`, `/api/chief-complaints`, `/api/ayush/cards`, and `/api/kiosk/config`.
+- The backend is resilient to database outages and provides an in-memory fallback — see `backend/src/db.ts`.
+- Dead or duplicate Express routes were removed when the monorepo was split.
+- `corrections.jsonl` (written by the physician-correction flow) is ignored by git.
 
----
+Contributing
 
-## Repository notes
+Contributions, issues, and feature requests are welcome. Please open issues or pull requests in this repository and follow standard GitHub contribution practices.
 
-- `mockData.ts` is **backend-only**; the frontend fetches it (`/api/languages`,
-  `/api/chief-complaints`, `/api/ayush/cards`, `/api/kiosk/config`, …).
-- The backend never crashes on a database outage — see `backend/src/db.ts`.
-- Dead/duplicate Express routes were pruned during the monorepo split (Express
-  only ever executes the first-matching registration).
-- `corrections.jsonl` (auto-written by the physician-correction flow) is
-  git-ignored.
+License
+
+Specify the project license here (e.g., MIT). If there's an existing LICENSE file, keep that license. If you want me to add a license, tell me which one.
+
+Contact
+
+For questions or help running the project locally, open an issue or contact the maintainers.
